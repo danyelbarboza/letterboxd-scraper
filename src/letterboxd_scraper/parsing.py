@@ -186,6 +186,12 @@ def _extract_year(soup: BeautifulSoup) -> int | None:
         if match:
             return int(match.group(0))
 
+    og_title = soup.select_one("meta[property='og:title']")
+    if og_title:
+        match = _YEAR_PATTERN.search(str(og_title.get("content") or ""))
+        if match:
+            return int(match.group(0))
+
     description = soup.select_one("meta[property='og:description']")
     if description:
         match = _YEAR_PATTERN.search(str(description.get("content") or ""))
