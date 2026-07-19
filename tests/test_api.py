@@ -24,7 +24,7 @@ def test_build_list_constructs_a_valid_runtime_config(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(api, "ScrapePipeline", FakePipeline)
 
     result = api.build_list(
-        seed_lists=[" https://letterboxd.com/user/list/example/ "] ,
+        seed_lists=[" https://letterboxd.com/user/list/example/ "],
         include_lists=["https://letterboxd.com/user/list/include/"],
         min_rating=3.0,
         max_rating=3.5,
@@ -48,12 +48,15 @@ def test_build_list_constructs_a_valid_runtime_config(monkeypatch, tmp_path: Pat
     ("kwargs", "message"),
     [
         ({"seed_lists": []}, "seed_lists"),
+        ({"seed_lists": "https://letterboxd.com/user/list/example/"}, "sequence of strings"),
         ({"seed_lists": ["x"], "min_rating": 5.1}, "min_rating"),
         (
             {"seed_lists": ["x"], "min_rating": 4.0, "max_rating": 3.0},
             "min_rating cannot be greater",
         ),
         ({"seed_lists": ["x"], "concurrency": 0}, "concurrency"),
+        ({"seed_lists": ["x"], "timeout_seconds": 0}, "timeout_seconds"),
+        ({"seed_lists": ["x"], "cache_ttl_hours": -1}, "cache_ttl_hours"),
         ({"seed_lists": ["x"], "basename": "  "}, "basename"),
     ],
 )
