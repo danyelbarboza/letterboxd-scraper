@@ -1,13 +1,6 @@
 name: Live library smoke test
 
 on:
-  pull_request:
-    branches: [main]
-    paths:
-      - 'scripts/run_live_library_smoke.py'
-      - '.github/workflows/live-library-smoke.yml'
-      - 'src/**'
-      - 'pyproject.toml'
   workflow_dispatch:
 
 permissions:
@@ -15,7 +8,6 @@ permissions:
 
 jobs:
   live-smoke:
-    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'agent/live-csv-smoke-tests'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
