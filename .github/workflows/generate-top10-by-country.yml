@@ -6,22 +6,34 @@ on:
       - data/top-10-by-country-2026-07-19
     paths:
       - scripts/generate_top10_by_country.py
+      - scripts/generate_top10_by_country_shard.py
+      - scripts/combine_top10_by_country_shards.py
       - .github/workflows/generate-top10-by-country.yml
   pull_request:
     branches:
       - main
     paths:
       - scripts/generate_top10_by_country.py
+      - scripts/generate_top10_by_country_shard.py
+      - scripts/combine_top10_by_country_shards.py
       - .github/workflows/generate-top10-by-country.yml
   workflow_dispatch:
 
 permissions:
   contents: read
 
+env:
+  SHARD_COUNT: '8'
+
 jobs:
   generate:
+    name: Generate shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -38,14 +50,51 @@ jobs:
           python -m pip install -e .
           python -m pip install Babel pycountry pycountry-convert
 
-      - name: Generate CSV files
-        run: python scripts/generate_top10_by_country.py
+      - name: Generate country shard
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+          OUTPUT_DIR: output/country-shard-${{ matrix.shard }}
+        run: python scripts/generate_top10_by_country_shard.py
 
-      - name: Archive CSV files
+      - name: Archive country shard
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: country-shard-${{ matrix.shard }}
+          path: output/country-shard-${{ matrix.shard }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  combine:
+    name: Combine and validate CSV files
+    needs: generate
+    if: always() && !cancelled()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Download country shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: country-shard-*
+          path: output/shards
+
+      - name: Combine shard files
+        run: |
+          python scripts/combine_top10_by_country_shards.py \
+            output/shards \
+            output/top10-by-country
+
+      - name: Archive final CSV files
         uses: actions/upload-artifact@v4
         with:
           name: top-10-films-by-country
           path: output/top10-by-country/
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 7
