@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 
 from letterboxd_scraper.http import HttpResponse
-from letterboxd_scraper.list_scraper import ListScraper, build_list_page_urls, normalize_list_url
+from letterboxd_scraper.list_scraper import (
+    ListScraper,
+    build_list_page_urls,
+    normalize_list_url,
+)
 
 
 @dataclass
@@ -14,7 +18,10 @@ class FakeHttp:
             return HttpResponse(
                 url=url,
                 status_code=200,
-                text='''<div class="film-poster" data-target-link="/film/example/" data-item-name="Example" data-item-year="2020"></div>''',
+                text=(
+                    '<div class="film-poster" data-target-link="/film/example/" '
+                    'data-item-name="Example" data-item-year="2020"></div>'
+                ),
                 source="direct",
             )
         return HttpResponse(url=url, status_code=404, text="", source="direct")
