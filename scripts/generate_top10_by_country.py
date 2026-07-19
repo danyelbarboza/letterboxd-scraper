@@ -180,10 +180,10 @@ def import_rows(rows):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    config = HttpConfig(timeout_seconds=45,max_attempts=4,backoff_base_seconds=1,max_backoff_seconds=20,concurrency=8,min_request_interval_seconds=.12,use_jina_fallback=True)
+    config = HttpConfig(timeout_seconds=30,max_attempts=1,backoff_base_seconds=.5,max_backoff_seconds=2,concurrency=10,min_request_interval_seconds=.05,use_jina_fallback=True)
     http = HttpClient(config)
     scraper = ListScraper(http, filters=(), max_pages=1)
-    resolver = FilmResolver(http, FilmCache(CacheConfig(enabled=True,directory=Path(".cache/letterboxd-country"),ttl_hours=168)), concurrency=8)
+    resolver = FilmResolver(http, FilmCache(CacheConfig(enabled=True,directory=Path(".cache/letterboxd-country"),ttl_hours=168)), concurrency=10)
     countries, languages = filter_options(http)
     lookup = language_lookup(languages)
     print(f"Discovered {len(countries)} countries and {len(languages)} languages", flush=True)
