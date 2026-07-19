@@ -18,6 +18,12 @@ _RATING_PATTERN = re.compile(
     r"(?<!\d)([0-5](?:\.\d+)?)\s*(?:avg rating|out of 5)(?!\d)",
     flags=re.IGNORECASE,
 )
+_POSTER_ROW_PATTERN = re.compile(
+    r"^\s*[*-]\s+!\[[^\]]*Poster for [^\]]*\]\([^\n]+\)\s*"
+    r"\[(?P<title>.+)\s+\((?P<year>(?:18|19|20|21)\d{2})\)\]"
+    r"\((?P<uri>(?:https://letterboxd\.com)?/film/[^/?#)\s]+/)\)\s*$",
+    flags=re.MULTILINE | re.IGNORECASE,
+)
 
 
 def canonicalize_film_uri(raw_url: str) -> str | None:
@@ -50,22 +56,24 @@ def parse_list_html(html: str) -> dict[str, FilmRef]:
 
 
 def parse_list_markdown(markdown: str) -> dict[str, FilmRef]:
-    """Extract film links from Jina Reader markdown.
+    """Extract only actual poster rows from Jina-rendered list pages.
 
-    Jina output may contain absolute links or relative ``/film/.../`` links.
-    Metadata is intentionally left partial and resolved from each film page.
+    A broad search for every ``/film/`` link is unsafe: an empty filtered page
+    may still contain navigation, footer, recommendation, or comment links.
+    Restricting the parser to poster rows prevents those links from becoming
+    false-positive films.
     """
     films: dict[str, FilmRef] = {}
-    patterns = (
-        re.compile(r"https://letterboxd\.com/film/[^/?#)\s]+/"),
-        re.compile(r"(?<![A-Za-z0-9])(/film/[^/?#)\s]+/)"),
-    )
-    for pattern in patterns:
-        for match in pattern.finditer(markdown):
-            raw = match.group(1) if match.lastindex else match.group(0)
-            uri = canonicalize_film_uri(raw)
-            if uri:
-                films.setdefault(uri, FilmRef(uri=uri))
+    for match in _POSTER_ROW_PATTERN.finditer(markdown):
+        uri = canonicalize_film_uri(match.group("uri"))
+        if uri is None:
+            continue
+        film = FilmRef(
+            uri=uri,
+            title=match.group("title").strip(),
+            year=int(match.group("year")),
+        )
+        films[uri] = films[uri].merge(film) if uri in films else film
     return films
 
 
@@ -183,6 +191,12 @@ def _extract_year(soup: BeautifulSoup) -> int | None:
     year_node = soup.select_one("small.number a, small.number")
     if year_node:
         match = _YEAR_PATTERN.search(year_node.get_text(" ", strip=True))
+        if match:
+            return int(match.group(0))
+
+    og_title = soup.select_one("meta[property='og:title']")
+    if og_title:
+        match = _YEAR_PATTERN.search(str(og_title.get("content") or ""))
         if match:
             return int(match.group(0))
 

@@ -85,15 +85,40 @@ def normalize_list_url(list_url: str) -> str:
     return urlunsplit((parsed.scheme or "https", parsed.netloc, path, "", ""))
 
 
+def _detail_list_url(list_url: str) -> str:
+    """Insert Letterboxd's ``detail`` view segment before list filters."""
+    parsed = urlsplit(normalize_list_url(list_url))
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    try:
+        list_index = segments.index("list")
+    except ValueError:
+        return normalize_list_url(list_url)
+
+    insertion_index = list_index + 2
+    if insertion_index <= len(segments) and (
+        insertion_index == len(segments) or segments[insertion_index] != "detail"
+    ):
+        segments.insert(insertion_index, "detail")
+    path = "/" + "/".join(segments) + "/"
+    return urlunsplit((parsed.scheme, parsed.netloc, path, "", ""))
+
+
 def build_list_page_urls(
     list_url: str,
     page: int,
     filters: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Build detail and grid page variants used by current Letterboxd lists."""
-    base = normalize_list_url(list_url).rstrip("/")
+    """Build detail and grid variants without moving existing path filters.
+
+    Letterboxd places ``detail`` immediately after the list slug and before
+    filters such as ``country`` and ``language``. The first page is addressed
+    without an explicit ``page/1`` segment.
+    """
+    grid_base = normalize_list_url(list_url).rstrip("/")
+    detail_base = _detail_list_url(list_url).rstrip("/")
+    suffix = "" if page == 1 else f"/page/{page}"
     query = f"?filters={'+'.join(filters)}" if filters else ""
     return (
-        f"{base}/detail/page/{page}/{query}",
-        f"{base}/page/{page}/{query}",
+        f"{detail_base}{suffix}/{query}",
+        f"{grid_base}{suffix}/{query}",
     )

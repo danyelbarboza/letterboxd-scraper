@@ -32,6 +32,11 @@ dev = [
   "ruff>=0.6,<1",
   "types-requests>=2.32,<3",
 ]
+country = [
+  "Babel>=2.15,<3",
+  "pycountry>=24.6,<25",
+  "pycountry-convert>=0.7,<1",
+]
 
 [project.scripts]
 letterboxd-scraper = "letterboxd_scraper.cli:main"
@@ -47,6 +52,7 @@ testpaths = ["tests"]
 target-version = "py311"
 line-length = 100
 src = ["src", "tests"]
+exclude = ["scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
