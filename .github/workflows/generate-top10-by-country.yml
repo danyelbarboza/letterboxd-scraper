@@ -1,0 +1,45 @@
+name: Generate top 10 films by country
+
+on:
+  push:
+    branches:
+      - data/top-10-by-country-2026-07-19
+    paths:
+      - scripts/generate_top10_by_country.py
+      - .github/workflows/generate-top10-by-country.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+          python -m pip install Babel pycountry pycountry-convert
+
+      - name: Generate CSV files
+        run: python scripts/generate_top10_by_country.py
+
+      - name: Archive CSV files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: top-10-films-by-country
+          path: output/top10-by-country/
+          if-no-files-found: warn
+          retention-days: 7
