@@ -24,7 +24,6 @@ POSTER_LINE = re.compile(
 
 
 def parse_poster_references(markdown: str, limit: int) -> list[FilmRef]:
-    """Read only actual poster rows, excluding film links in comments and navigation."""
     films: list[FilmRef] = []
     seen: set[str] = set()
     for match in POSTER_LINE.finditer(markdown):
