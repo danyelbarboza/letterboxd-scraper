@@ -33,3 +33,5 @@ for name, source in urls.items():
         except Exception as exc:
             body = repr(exc)
         (OUTPUT / f"{name}-{index}.md").write_text(body, encoding="utf-8")
+
+print(f"Captured {len(urls) * 2} filtered page responses")
