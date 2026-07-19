@@ -1,0 +1,48 @@
+name: Live library smoke test
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/run_live_library_smoke.py'
+      - '.github/workflows/live-library-smoke.yml'
+      - 'src/**'
+      - 'pyproject.toml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    if: github.event_name == 'workflow_dispatch' || github.head_ref == 'agent/live-csv-smoke-tests'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install the library as a user package
+        run: python -m pip install .
+      - name: Confirm installed distribution and commands
+        run: |
+          python -c "from importlib.metadata import version; print(version('letterboxd-list-toolkit'))"
+          letterboxd-toolkit --help
+          letterboxd-scraper --help
+      - name: Generate and validate live CSV examples
+        run: python scripts/run_live_library_smoke.py
+      - name: Package CSV examples
+        run: |
+          cd live-test-output
+          zip -r ../letterboxd-live-csv-examples.zip .
+      - name: Upload live CSV examples
+        uses: actions/upload-artifact@v4
+        with:
+          name: letterboxd-live-csv-examples
+          path: |
+            live-test-output/
+            letterboxd-live-csv-examples.zip
+          if-no-files-found: error
+          retention-days: 14
