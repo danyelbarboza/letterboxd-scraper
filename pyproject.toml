@@ -3,33 +3,52 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "letterboxd-list-scraper"
-version = "0.1.0"
-description = "Build reproducible Letterboxd list datasets with resilient scraping, list algebra, filtering, validation, and CSV export."
+name = "letterboxd-list-toolkit"
+version = "0.2.0"
+description = "Build reproducible Letterboxd list datasets with resilient scraping, list algebra, filtering, validation, and auditable exports."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "Danyel Barboza" }]
+keywords = [
+  "letterboxd",
+  "movies",
+  "scraping",
+  "lists",
+  "datasets",
+  "csv",
+]
 dependencies = [
   "beautifulsoup4>=4.12,<5",
   "requests>=2.32,<3",
 ]
 classifiers = [
-  "Development Status :: 3 - Alpha",
+  "Development Status :: 4 - Beta",
   "Environment :: Console",
+  "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Topic :: Internet :: WWW/HTTP :: Indexing/Search",
+  "Topic :: Software Development :: Libraries :: Python Modules",
 ]
+
+[project.urls]
+Homepage = "https://github.com/danyelbarboza/letterboxd-list-toolkit"
+Repository = "https://github.com/danyelbarboza/letterboxd-list-toolkit"
+Issues = "https://github.com/danyelbarboza/letterboxd-list-toolkit/issues"
+Changelog = "https://github.com/danyelbarboza/letterboxd-list-toolkit/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 dev = [
+  "build>=1.2,<2",
   "mypy>=1.11,<2",
   "pytest>=8.3,<9",
   "pytest-cov>=5,<7",
   "ruff>=0.6,<1",
+  "twine>=5.1,<7",
   "types-requests>=2.32,<3",
 ]
 country = [
@@ -39,10 +58,14 @@ country = [
 ]
 
 [project.scripts]
+letterboxd-toolkit = "letterboxd_scraper.cli:main"
 letterboxd-scraper = "letterboxd_scraper.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+letterboxd_scraper = ["py.typed"]
 
 [tool.pytest.ini_options]
 addopts = "-q --strict-markers --disable-warnings"

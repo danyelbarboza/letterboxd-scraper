@@ -27,16 +27,17 @@ def write_outputs(
     list_results: list[ListScrapeResult],
     config: AppConfig,
 ) -> OutputPaths:
+    """Write all outputs enabled by the application configuration."""
     directory = config.output.directory
     directory.mkdir(parents=True, exist_ok=True)
     basename = config.output.basename
 
     import_csv = directory / f"{basename}.csv"
-    _write_import_csv(import_csv, selected)
+    write_letterboxd_csv(import_csv, selected)
 
     audit_csv = directory / f"{basename}_audit.csv" if config.output.include_audit_csv else None
     if audit_csv:
-        _write_audit_csv(audit_csv, selected)
+        write_audit_csv(audit_csv, selected)
 
     unresolved_json = (
         directory / f"{basename}_unresolved.json" if config.output.include_unresolved_json else None
@@ -69,6 +70,7 @@ def build_summary(
     list_results: list[ListScrapeResult],
     config: AppConfig,
 ) -> dict[str, object]:
+    """Build a machine-readable summary for a completed scrape."""
     ratings = [film.average_rating for film in selected if film.average_rating is not None]
     years = [film.year for film in selected if film.year is not None]
     exact_distribution = Counter(f"{rating:.2f}" for rating in ratings)
@@ -106,15 +108,22 @@ def build_summary(
     }
 
 
-def _write_import_csv(path: Path, films: list[FilmDetails]) -> None:
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+def write_letterboxd_csv(path: str | Path, films: list[FilmDetails]) -> Path:
+    """Write films in the three-column CSV format accepted by Letterboxd."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["Title", "Year", "LetterboxdURI"])
         writer.writeheader()
         for film in films:
             writer.writerow({"Title": film.title, "Year": film.year, "LetterboxdURI": film.uri})
+    return output_path
 
 
-def _write_audit_csv(path: Path, films: list[FilmDetails]) -> None:
+def write_audit_csv(path: str | Path, films: list[FilmDetails]) -> Path:
+    """Write resolved films with rating and metadata provenance columns."""
+    output_path = Path(path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "Title",
         "Year",
@@ -123,7 +132,7 @@ def _write_audit_csv(path: Path, films: list[FilmDetails]) -> None:
         "RatingSource",
         "MetadataSource",
     ]
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+    with output_path.open("w", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         for film in films:
@@ -139,6 +148,7 @@ def _write_audit_csv(path: Path, films: list[FilmDetails]) -> None:
                     "MetadataSource": film.metadata_source,
                 }
             )
+    return output_path
 
 
 def _rating_tenth_bucket(rating: float) -> str:
