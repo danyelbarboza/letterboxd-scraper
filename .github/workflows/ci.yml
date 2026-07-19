@@ -34,3 +34,32 @@ jobs:
         run: mypy src
       - name: Test
         run: pytest --cov=letterboxd_scraper --cov-report=term-missing --cov-fail-under=70
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install build tools
+        run: python -m pip install --upgrade pip build twine
+      - name: Build wheel and source distribution
+        run: python -m build
+      - name: Check distribution metadata
+        run: twine check dist/*
+      - name: Install wheel in an isolated environment
+        run: |
+          python -m venv .package-venv
+          .package-venv/bin/python -m pip install --upgrade pip
+          .package-venv/bin/python -m pip install dist/*.whl
+      - name: Smoke-test installed library and commands
+        run: |
+          .package-venv/bin/python -c "import letterboxd_scraper; assert letterboxd_scraper.__version__ == '0.2.0'; assert callable(letterboxd_scraper.build_list)"
+          .package-venv/bin/letterboxd-toolkit --version
+          .package-venv/bin/letterboxd-scraper --version
+      - uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
