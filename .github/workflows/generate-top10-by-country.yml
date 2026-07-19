@@ -7,6 +7,12 @@ on:
     paths:
       - scripts/generate_top10_by_country.py
       - .github/workflows/generate-top10-by-country.yml
+  pull_request:
+    branches:
+      - main
+    paths:
+      - scripts/generate_top10_by_country.py
+      - .github/workflows/generate-top10-by-country.yml
   workflow_dispatch:
 
 permissions:
