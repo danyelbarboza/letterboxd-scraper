@@ -1,0 +1,38 @@
+# Reproduces the "Popular, Not Beloved" list concept.
+# The source is a community-maintained snapshot, not an official live query.
+
+[query]
+seed_lists = [
+  "https://letterboxd.com/cinemageekyt/list/letterboxd-500k-watched-club/",
+]
+filters = ["hide-tv", "hide-shorts", "hide-documentaries"]
+min_rating = 3.00
+max_rating = 3.50
+min_rating_inclusive = true
+max_rating_inclusive = true
+max_pages_per_list = 25
+
+[http]
+concurrency = 10
+max_attempts = 6
+timeout_seconds = 45
+min_request_interval_seconds = 0.05
+use_jina_fallback = true
+
+[cache]
+enabled = true
+directory = ".cache/letterboxd"
+ttl_hours = 24
+
+[validation]
+expected_min_candidates = 1200
+expected_max_candidates = 1600
+max_unresolved_ratio = 0.02
+require_nonempty_output = true
+
+[output]
+directory = "output/popular-not-beloved"
+basename = "popular_not_beloved"
+include_audit_csv = true
+include_unresolved_json = true
+include_summary_json = true
