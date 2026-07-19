@@ -1,0 +1,64 @@
+name: Verify PyPI 0.2.0 publication
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/verify-pypi-020.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pypi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Wait for PyPI metadata and validate distributions
+        run: |
+          python - <<'PY'
+          import json
+          import time
+          import urllib.error
+          import urllib.request
+
+          url = "https://pypi.org/pypi/letterboxd-list-toolkit/0.2.0/json"
+          payload = None
+          for attempt in range(20):
+              try:
+                  with urllib.request.urlopen(url, timeout=30) as response:
+                      payload = json.load(response)
+                  break
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+                  print(f"PyPI has not exposed 0.2.0 yet (attempt {attempt + 1}/20)")
+                  time.sleep(15)
+
+          if payload is None:
+              raise SystemExit("letterboxd-list-toolkit 0.2.0 was not found on PyPI")
+
+          assert payload["info"]["name"] == "letterboxd-list-toolkit"
+          assert payload["info"]["version"] == "0.2.0"
+          filenames = {item["filename"] for item in payload["urls"]}
+          assert any(name.endswith(".whl") for name in filenames), filenames
+          assert any(name.endswith(".tar.gz") for name in filenames), filenames
+          print("PyPI metadata and both distribution formats are available:")
+          for filename in sorted(filenames):
+              print(f"- {filename}")
+          PY
+      - name: Install the exact version from PyPI
+        run: python -m pip install --no-cache-dir letterboxd-list-toolkit==0.2.0
+      - name: Verify public API and CLI entry points
+        run: |
+          python - <<'PY'
+          import letterboxd_scraper
+
+          assert letterboxd_scraper.__version__ == "0.2.0"
+          assert callable(letterboxd_scraper.build_list)
+          print("Public API import passed")
+          PY
+          letterboxd-toolkit --version
+          letterboxd-scraper --version
