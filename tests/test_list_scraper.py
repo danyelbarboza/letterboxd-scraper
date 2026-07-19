@@ -56,8 +56,7 @@ def test_list_url_helpers_build_plain_list_pages() -> None:
 
 def test_list_url_helpers_keep_country_and_language_filters_after_detail() -> None:
     filtered = (
-        "https://letterboxd.com/user/list/example/"
-        "country/brazil/language/portuguese/"
+        "https://letterboxd.com/user/list/example/country/brazil/language/portuguese/"
     )
     assert build_list_page_urls(filtered, 1, ()) == (
         "https://letterboxd.com/user/list/example/detail/country/brazil/language/portuguese/",
