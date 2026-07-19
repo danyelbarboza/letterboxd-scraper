@@ -1,0 +1,31 @@
+# Generic threshold-list algebra example.
+# Replace the placeholder threshold URLs with the maintained lists you trust.
+# Result: narrative features watched by >10k but not by >100k users, rated >3.5.
+
+[query]
+seed_lists = [
+  "https://letterboxd.com/hershwin/list/all-the-movies/",
+]
+include_lists = [
+  "https://letterboxd.com/USER/list/OVER-10K-LIST/",
+]
+exclude_lists = [
+  "https://letterboxd.com/USER/list/OVER-100K-LIST/",
+]
+filters = ["hide-tv", "hide-shorts", "hide-documentaries"]
+min_rating = 3.50
+min_rating_inclusive = false
+max_pages_per_list = 600
+
+[http]
+concurrency = 10
+max_attempts = 6
+use_jina_fallback = true
+
+[validation]
+expected_min_candidates = 1
+max_unresolved_ratio = 0.02
+
+[output]
+directory = "output/watch-band"
+basename = "watch_band_above_3_5"
