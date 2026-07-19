@@ -43,11 +43,7 @@ def import_rows(audit_rows: list[dict[str, str]]) -> list[dict[str, object]]:
             continue
         unique.setdefault(
             uri,
-            {
-                "Title": row["Title"],
-                "Year": row["Year"],
-                "LetterboxdURI": uri,
-            },
+            {"Title": row["Title"], "Year": row["Year"], "LetterboxdURI": uri},
         )
     return sorted(
         unique.values(),
@@ -66,18 +62,53 @@ def numeric(row: dict[str, str], field: str) -> int:
         return 0
 
 
+def validate(audit: list[dict[str, str]], countries: list[dict[str, str]]) -> None:
+    if not countries:
+        raise RuntimeError(f"No country shard data found under {INPUT_ROOT}")
+    if len(countries) < 200:
+        raise RuntimeError(f"Suspicious country count: {len(countries)}")
+    missing = [
+        row
+        for row in audit
+        if not row.get("Title")
+        or not row.get("Year")
+        or not row.get("LetterboxdURI", "").startswith("https://letterboxd.com/film/")
+    ]
+    if missing:
+        raise RuntimeError(f"Audit contains {len(missing)} rows without import metadata")
+    by_country: dict[str, list[dict[str, str]]] = defaultdict(list)
+    for row in audit:
+        by_country[row["Country"]].append(row)
+    for country in countries:
+        name = country["Country"]
+        expected = numeric(country, "FilmsSelected")
+        actual = len(by_country[name])
+        if expected != actual:
+            raise RuntimeError(f"Country count mismatch for {name}: summary={expected}, audit={actual}")
+        if actual > TOP_N:
+            raise RuntimeError(f"More than {TOP_N} films selected for {name}: {actual}")
+        uris = [row["LetterboxdURI"] for row in by_country[name]]
+        if len(uris) != len(set(uris)):
+            raise RuntimeError(f"Duplicate film within country {name}")
+        ranks = sorted(numeric(row, "Rank") for row in by_country[name])
+        if ranks != list(range(1, actual + 1)):
+            raise RuntimeError(f"Non-contiguous ranks for {name}: {ranks}")
+    brazil = by_country.get("Brazil", [])
+    if len(brazil) != TOP_N or not any(
+        row["LetterboxdURI"].endswith("/city-of-god/") for row in brazil
+    ):
+        raise RuntimeError("Brazil validation failed: expected ten films including City of God")
+
+
 def main() -> int:
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
     audit = read_rows("top_10_by_country_audit.csv")
     countries = read_rows("country_summary.csv")
     country_languages = read_rows("countries_and_languages.csv")
     unresolved = read_rows("unresolved_films.csv")
     unmapped = read_rows("unmapped_countries.csv")
     unmatched = read_rows("unmatched_languages.csv")
-
-    if not countries:
-        raise RuntimeError(f"No country shard data found under {INPUT_ROOT}")
+    validate(audit, countries)
 
     audit.sort(
         key=lambda row: (
@@ -147,28 +178,27 @@ def main() -> int:
             import_rows(rows),
         )
 
-    duplicate_assignments = len(audit) - len(import_data)
-    country_count = len(countries)
     summary = {
         "generated_at_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "source_list": "https://letterboxd.com/imthelizardking/list/all-the-movies-10k-views-4/",
         "target_per_country": TOP_N,
-        "countries_discovered": country_count,
+        "countries_discovered": len(countries),
         "countries_with_10": sum(numeric(row, "FilmsSelected") == TOP_N for row in countries),
         "countries_partial": sum(0 < numeric(row, "FilmsSelected") < TOP_N for row in countries),
         "countries_empty": sum(numeric(row, "FilmsSelected") == 0 for row in countries),
         "audit_rows": len(audit),
         "unique_import_films": len(import_data),
-        "duplicate_country_assignments_removed_from_import": duplicate_assignments,
+        "duplicate_country_assignments_removed_from_import": len(audit) - len(import_data),
         "country_language_rows": len(country_languages),
         "unmapped_countries": len(unmapped),
         "unmatched_country_language_codes": len(unmatched),
         "unresolved_records": len(unresolved),
         "continent_files": sorted(by_continent),
+        "validation": "passed",
         "methodology": {
             "country_universe": "All country, territory, and historical-country filters listed by Letterboxd",
             "languages": "CLDR official, de-facto official, and official-regional languages matched to Letterboxd language filters",
-            "selection": "At most ten films per country, combining valid country-language filters and ranking candidates by current Letterboxd average rating",
+            "selection": "At most ten films per country from exact country-language URLs; only poster rows are parsed; multilingual candidates are ranked by current Letterboxd average rating",
             "deduplication": "Import CSVs are unique by canonical Letterboxd URI; the audit CSV retains each country assignment",
         },
     }
