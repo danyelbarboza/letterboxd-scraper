@@ -13,9 +13,7 @@ from letterboxd_scraper.parsing import parse_list_html, parse_list_markdown
 class ListScraper:
     """Scrape one public Letterboxd list into canonical film references."""
 
-    def __init__(
-        self, http: HttpClient, *, filters: tuple[str, ...], max_pages: int
-    ) -> None:
+    def __init__(self, http: HttpClient, *, filters: tuple[str, ...], max_pages: int) -> None:
         self._http = http
         self._filters = filters
         self._max_pages = max_pages
@@ -50,9 +48,7 @@ class ListScraper:
             source_counts=dict(source_counts),
         )
 
-    def _fetch_page(
-        self, list_url: str, page: int
-    ) -> tuple[dict[str, FilmRef], str, bool]:
+    def _fetch_page(self, list_url: str, page: int) -> tuple[dict[str, FilmRef], str, bool]:
         page_urls = build_list_page_urls(list_url, page, self._filters)
 
         for url in page_urls:

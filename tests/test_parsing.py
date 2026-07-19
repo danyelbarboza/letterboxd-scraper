@@ -55,9 +55,7 @@ def test_parse_list_markdown_extracts_only_poster_rows() -> None:
     assert films["https://letterboxd.com/film/arrival/"].year == 2016
 
 
-def test_parse_list_markdown_returns_empty_for_page_with_only_incidental_links() -> (
-    None
-):
+def test_parse_list_markdown_returns_empty_for_page_with_only_incidental_links() -> None:
     markdown = """
     No films matched this filter.
     [A footer film](https://letterboxd.com/film/false-positive/)

@@ -50,9 +50,7 @@ def parse_list_html(html: str) -> dict[str, FilmRef]:
         uri = canonicalize_film_uri(str(raw_link))
         if not uri:
             continue
-        film = FilmRef(
-            uri=uri, title=_extract_node_title(node), year=_extract_node_year(node)
-        )
+        film = FilmRef(uri=uri, title=_extract_node_title(node), year=_extract_node_year(node))
         films[uri] = films[uri].merge(film) if uri in films else film
     return films
 
