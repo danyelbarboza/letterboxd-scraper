@@ -2,19 +2,51 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
 from urllib.parse import urljoin
 
+import generate_top10_by_country as common
 from letterboxd_scraper.cache import FilmCache
 from letterboxd_scraper.config import CacheConfig, HttpConfig
 from letterboxd_scraper.film_resolver import FilmResolver
 from letterboxd_scraper.http import HttpClient
-from letterboxd_scraper.list_scraper import ListScraper
-from letterboxd_scraper.models import FilmDetails
+from letterboxd_scraper.models import FilmDetails, FilmRef
 
-import generate_top10_by_country as common
+POSTER_LINE = re.compile(
+    r"^\*\s+!\[Image\s+\d+:\s+Poster for .*?\]\([^\n]+\)"
+    r"\[(?P<title>.+)\s+\((?P<year>(?:18|19|20|21)\d{2})\)\]"
+    r"\((?P<uri>https://letterboxd\.com/film/[^)]+/)\)\s*$",
+    re.MULTILINE,
+)
+
+
+def parse_poster_references(markdown: str, limit: int) -> list[FilmRef]:
+    """Read only actual poster rows, excluding film links in comments and navigation."""
+    films: list[FilmRef] = []
+    seen: set[str] = set()
+    for match in POSTER_LINE.finditer(markdown):
+        uri = match.group("uri")
+        if uri in seen:
+            continue
+        seen.add(uri)
+        films.append(
+            FilmRef(
+                uri=uri,
+                title=match.group("title").strip(),
+                year=int(match.group("year")),
+            )
+        )
+        if len(films) == limit:
+            break
+    return films
+
+
+def fetch_candidates(http: HttpClient, source_url: str) -> tuple[list[FilmRef], dict[str, int]]:
+    response = http.get_jina(source_url)
+    return parse_poster_references(response.text, common.TOP_N), {"jina-poster-markdown": 1}
 
 
 def main() -> int:
@@ -22,21 +54,20 @@ def main() -> int:
     shard_count = int(os.environ.get("SHARD_COUNT", "1"))
     output_dir = Path(os.environ.get("OUTPUT_DIR", f"output/country-shard-{shard_index}"))
     output_dir.mkdir(parents=True, exist_ok=True)
-
     if shard_count < 1 or not 0 <= shard_index < shard_count:
         raise ValueError("SHARD_INDEX must be between 0 and SHARD_COUNT - 1")
 
-    config = HttpConfig(
-        timeout_seconds=30,
-        max_attempts=1,
-        backoff_base_seconds=0.5,
-        max_backoff_seconds=2,
-        concurrency=10,
-        min_request_interval_seconds=0.05,
-        use_jina_fallback=True,
+    http = HttpClient(
+        HttpConfig(
+            timeout_seconds=45,
+            max_attempts=3,
+            backoff_base_seconds=0.75,
+            max_backoff_seconds=8,
+            concurrency=24,
+            min_request_interval_seconds=0.08,
+            use_jina_fallback=True,
+        )
     )
-    http = HttpClient(config)
-    scraper = ListScraper(http, filters=(), max_pages=1)
     resolver = FilmResolver(
         http,
         FilmCache(
@@ -46,14 +77,16 @@ def main() -> int:
                 ttl_hours=168,
             )
         ),
-        concurrency=10,
+        concurrency=24,
     )
 
     countries, languages = common.filter_options(http)
     language_index = common.language_lookup(languages)
     all_countries = sorted(countries.values(), key=lambda item: item["name"].casefold())
-    countries_in_shard = [
-        country for position, country in enumerate(all_countries) if position % shard_count == shard_index
+    selected_countries = [
+        country
+        for position, country in enumerate(all_countries)
+        if position % shard_count == shard_index
     ]
 
     audit_rows: list[dict[str, object]] = []
@@ -64,16 +97,15 @@ def main() -> int:
     unmatched_rows: list[dict[str, object]] = []
 
     print(
-        f"Shard {shard_index}/{shard_count}: {len(countries_in_shard)} of "
+        f"Shard {shard_index}/{shard_count}: {len(selected_countries)} of "
         f"{len(all_countries)} countries",
         flush=True,
     )
 
-    for local_index, country_option in enumerate(countries_in_shard, 1):
+    for local_index, country_option in enumerate(selected_countries, 1):
         country = str(country_option["name"])
         country_code = common.alpha2(country)
         continent = common.continent(country, country_code)
-
         if not country_code and country not in common.HISTORICAL:
             unmapped_rows.append(
                 {
@@ -87,7 +119,6 @@ def main() -> int:
         matched_languages: list[tuple[str, dict[str, object]]] = []
         unmatched_codes: list[str] = []
         seen_language_slugs: set[str] = set()
-
         for language_code in common.language_codes(country, country_code):
             option = common.match_language(language_code, languages, language_index)
             if not option:
@@ -113,29 +144,20 @@ def main() -> int:
                 f"country/{country_option['slug']}/language/{option['slug']}/",
             )
             try:
-                result = scraper.scrape(source_url)
-                references = list(result.films.values())[: common.TOP_N]
-                runs.append(
-                    {
-                        "code": language_code,
-                        "option": option,
-                        "source": source_url,
-                        "references": references,
-                        "source_counts": result.source_counts,
-                        "error": "",
-                    }
-                )
+                references, source_counts = fetch_candidates(http, source_url)
+                error = ""
             except Exception as exc:
-                runs.append(
-                    {
-                        "code": language_code,
-                        "option": option,
-                        "source": source_url,
-                        "references": [],
-                        "source_counts": {},
-                        "error": repr(exc),
-                    }
-                )
+                references, source_counts, error = [], {}, repr(exc)
+            runs.append(
+                {
+                    "code": language_code,
+                    "option": option,
+                    "source": source_url,
+                    "references": references,
+                    "source_counts": source_counts,
+                    "error": error,
+                }
+            )
 
         candidates: dict[str, dict[str, object]] = {}
         for run in runs:
@@ -173,8 +195,8 @@ def main() -> int:
             }
             for item in unresolved
         )
-
         details_by_uri = {item.uri: item for item in resolved + unresolved}
+
         ranked: list[tuple[FilmDetails, dict[str, object]]] = []
         for uri, candidate in candidates.items():
             reference = candidate["reference"]
@@ -186,7 +208,6 @@ def main() -> int:
                 error="No resolver record",
             )
             ranked.append((details, candidate))
-
         ranked.sort(
             key=lambda pair: (
                 pair[0].average_rating is None,
@@ -288,7 +309,6 @@ def main() -> int:
                     "Error": "No matching Letterboxd language filter",
                 }
             )
-
         if not runs and not unmatched_codes:
             language_rows.append(
                 {
@@ -310,7 +330,7 @@ def main() -> int:
             )
 
         print(
-            f"[{local_index:03d}/{len(countries_in_shard):03d}] {country}: "
+            f"[{local_index:03d}/{len(selected_countries):03d}] {country}: "
             f"{selected_count}/{common.TOP_N}, {len(matched_languages)} language(s), "
             f"{len(candidates)} candidates",
             flush=True,
@@ -364,7 +384,7 @@ def main() -> int:
         "shard_index": shard_index,
         "shard_count": shard_count,
         "countries_total": len(all_countries),
-        "countries_processed": len(countries_in_shard),
+        "countries_processed": len(selected_countries),
         "audit_rows": len(audit_rows),
     }
     (output_dir / "shard_summary.json").write_text(
