@@ -29,8 +29,10 @@ jobs:
         run: cat bootstrap_parts/part-* > project_bootstrap.py
       - name: Materialize project files
         run: python project_bootstrap.py
-      - name: Remove one-time bootstrap files
-        run: rm -rf project_bootstrap.py bootstrap_parts bootstrap.ready .github/workflows/bootstrap-project.yml
+      - name: Keep workflow changes for connector publication
+        run: rm -f .github/workflows/ci.yml
+      - name: Remove one-time data files
+        run: rm -rf project_bootstrap.py bootstrap_parts bootstrap.ready
       - name: Commit project tree
         run: |
           git config user.name "github-actions[bot]"
