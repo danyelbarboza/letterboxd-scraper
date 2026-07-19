@@ -7,6 +7,7 @@ on:
     paths:
       - scripts/generate_top10_by_country.py
       - scripts/generate_top10_by_country_shard.py
+      - scripts/run_fast_top10_country_shard.py
       - scripts/combine_top10_by_country_shards.py
       - .github/workflows/generate-top10-by-country.yml
   workflow_dispatch:
@@ -46,7 +47,7 @@ jobs:
         env:
           SHARD_INDEX: ${{ matrix.shard }}
           OUTPUT_DIR: output/country-shard-${{ matrix.shard }}
-        run: python scripts/generate_top10_by_country_shard.py
+        run: python scripts/run_fast_top10_country_shard.py
 
       - name: Archive country shard
         if: always()
