@@ -1,0 +1,33 @@
+name: Bootstrap project
+
+on:
+  push:
+    branches:
+      - agent/build-modular-letterboxd-scraper
+    paths:
+      - project_bootstrap.py
+
+permissions:
+  contents: write
+
+jobs:
+  bootstrap:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/build-modular-letterboxd-scraper
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Materialize project files
+        run: python project_bootstrap.py
+      - name: Remove one-time bootstrap files
+        run: rm project_bootstrap.py .github/workflows/bootstrap-project.yml
+      - name: Commit project tree
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Build modular Letterboxd scraper"
+          git push origin HEAD:agent/build-modular-letterboxd-scraper
