@@ -6,6 +6,11 @@ on:
       - agent/build-modular-letterboxd-scraper
     paths:
       - bootstrap.ready
+  pull_request:
+    branches:
+      - main
+    paths:
+      - bootstrap.ready
 
 permissions:
   contents: write
