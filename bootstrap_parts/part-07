@@ -1,0 +1,16 @@
+"""
+
+
+def main() -> None:
+    root = Path.cwd().resolve()
+    archive_bytes = base64.b64decode(ARCHIVE_BASE64)
+    with tarfile.open(fileobj=io.BytesIO(archive_bytes), mode="r:gz") as archive:
+        for member in archive.getmembers():
+            destination = (root / member.name).resolve()
+            if root not in destination.parents and destination != root:
+                raise RuntimeError(f"Unsafe archive path: {member.name}")
+        archive.extractall(root, filter="data")
+
+
+if __name__ == "__main__":
+    main()
