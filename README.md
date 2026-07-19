@@ -1,75 +1,133 @@
-# Letterboxd List Scraper
+# Letterboxd List Toolkit
 
-A reusable Python toolkit for building validated Letterboxd list datasets from public lists.
+[![CI](https://github.com/danyelbarboza/letterboxd-list-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/danyelbarboza/letterboxd-list-toolkit/actions/workflows/ci.yml)
 
-It was designed around real-world failure modes encountered while generating large importable lists:
+A typed Python library and CLI for building reproducible, validated, and auditable
+Letterboxd list datasets from public lists.
 
-- public Letterboxd list pages may return HTTP `403` from hosted runners;
-- pagination commonly ends with HTTP `404`, not an empty `200` response;
-- list markup changes over time;
-- average-rating text changed from `avg rating` to `out of 5`;
-- a workflow can appear successful while silently exporting an empty CSV;
-- watch counts are usually available through community-maintained threshold lists rather than a public official API;
-- ratings are live values, while popularity lists are snapshots maintained by users.
+The toolkit combines resilient scraping, list algebra, rating filters, caching,
+concurrency, validation, deterministic CSV exports, and production-sized workflows
+such as Top 10 films by country and official language.
 
-The project turns those lessons into a modular pipeline with retries, fallback parsing, list algebra, caching, concurrency, validation, and deterministic exports.
+> This project is not affiliated with Letterboxd. It works with public pages and
+> should be used conservatively and responsibly.
+
+## Why this project exists
+
+Large Letterboxd exports fail in ways that can look successful:
+
+- public pages may return HTTP `403` from hosted runners;
+- pagination often ends with `404` instead of an empty page;
+- filtered-list URLs have a strict path order;
+- broad markdown link extraction can turn footer or comment links into films;
+- ratings and page markup change over time;
+- a green workflow can still produce an empty or incomplete CSV;
+- popularity criteria often come from community-maintained snapshot lists.
+
+The toolkit encodes the lessons from real production-sized runs as parsers,
+validation gates, tests, diagnostics, and repeatable workflows.
 
 ## Features
 
+- Python API and command-line interface.
 - Scrape one or more public Letterboxd lists.
 - Union seed lists, intersect inclusion lists, and subtract exclusion lists.
-- Hide TV, shorts, and documentaries through Letterboxd list filters.
-- Filter by inclusive or exclusive minimum and maximum average ratings.
+- Apply inclusive or exclusive rating boundaries.
+- Hide TV, shorts, and documentaries through Letterboxd filters.
 - Resolve title, year, canonical URL, and current average rating.
-- Fall back to Jina Reader when direct list pages are blocked.
-- Cache film metadata to reduce repeated requests.
-- Export a Letterboxd import CSV and a richer audit CSV.
-- Export unresolved records and a machine-readable summary.
-- Abort on suspicious candidate counts, excessive unresolved records, duplicates, or empty output.
+- Use Jina Reader as a read-only fallback when direct list pages are unavailable.
+- Cache film metadata and resolve records concurrently.
+- Export Letterboxd-compatible, audit, unresolved, and summary files.
+- Abort on suspicious candidate counts, excessive unresolved records, duplicates,
+  or empty output.
+- Generate country and official-language datasets with an eight-shard GitHub
+  Actions workflow.
+- Ship inline type information for editors and type checkers.
 
 ## Installation
 
+### From GitHub
+
+Until the first PyPI release is published:
+
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-python -m pip install -e '.[dev]'
+python -m pip install "git+https://github.com/danyelbarboza/letterboxd-list-toolkit.git"
 ```
 
-Windows PowerShell:
+For the optional country and language workflow dependencies:
 
-```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install -e '.[dev]'
+```bash
+python -m pip install "letterboxd-list-toolkit[country] @ git+https://github.com/danyelbarboza/letterboxd-list-toolkit.git"
 ```
 
-## Quick start
+### From PyPI
 
-Run the included example:
+After the first tagged release:
+
+```bash
+python -m pip install letterboxd-list-toolkit
+```
+
+The distribution is named `letterboxd-list-toolkit`. The Python import package
+remains `letterboxd_scraper` for compatibility.
+
+## Python quick start
+
+```python
+from letterboxd_scraper import build_list
+
+result = build_list(
+    seed_lists=[
+        "https://letterboxd.com/user/list/example/",
+    ],
+    min_rating=3.0,
+    max_rating=3.5,
+    concurrency=8,
+    output_directory="output/example",
+    basename="example",
+)
+
+print(f"Selected {len(result.selected)} films")
+print(result.output_paths.import_csv)
+```
+
+The returned result keeps all records in memory:
+
+```python
+result.candidates
+result.resolved
+result.unresolved
+result.selected
+result.list_results
+result.output_paths
+```
+
+A completed result can be exported again without making another network request:
+
+```python
+result.to_letterboxd_csv("exports/movies.csv")
+result.to_audit_csv("exports/movies_audit.csv")
+```
+
+See the complete [Python API guide](docs/API.md).
+
+## CLI quick start
+
+Create a TOML configuration and run:
+
+```bash
+letterboxd-toolkit examples/popular-not-beloved.toml
+```
+
+The legacy command remains available:
 
 ```bash
 letterboxd-scraper examples/popular-not-beloved.toml
 ```
 
-The command writes:
-
-```text
-output/popular-not-beloved/
-├── popular_not_beloved.csv
-├── popular_not_beloved_audit.csv
-├── popular_not_beloved_summary.json
-└── popular_not_beloved_unresolved.json
-```
-
-The import CSV uses the exact columns accepted by Letterboxd:
-
-```csv
-Title,Year,LetterboxdURI
-```
+Both commands execute the same pipeline.
 
 ## Configuration
-
-Every run is defined by a TOML file.
 
 ```toml
 [query]
@@ -86,7 +144,7 @@ max_rating_inclusive = true
 max_pages_per_list = 25
 
 [http]
-concurrency = 10
+concurrency = 8
 max_attempts = 6
 timeout_seconds = 45
 min_request_interval_seconds = 0.05
@@ -111,6 +169,26 @@ include_unresolved_json = true
 include_summary_json = true
 ```
 
+## Outputs
+
+A standard run can write:
+
+```text
+output/popular-not-beloved/
+├── popular_not_beloved.csv
+├── popular_not_beloved_audit.csv
+├── popular_not_beloved_summary.json
+└── popular_not_beloved_unresolved.json
+```
+
+The import CSV uses the columns accepted by Letterboxd:
+
+```csv
+Title,Year,LetterboxdURI
+```
+
+The audit CSV adds current rating and parser provenance.
+
 ## List algebra
 
 The candidate set is calculated as:
@@ -123,21 +201,20 @@ union(seed_lists)
 − union(exclude_lists)
 ```
 
-This makes popularity bands reproducible when maintained threshold lists exist.
-
 For example:
 
 ```text
 all narrative films ∩ over-10k-watches − over-100k-watches
 ```
 
-approximates films with 10,000 to 100,000 watches at the threshold lists' snapshot dates.
+approximates a 10,000-to-100,000 watch-count band at the source lists' snapshot
+dates.
 
 See [`examples/watch-band.toml.example`](examples/watch-band.toml.example).
 
 ## Rating boundaries
 
-Boundaries are explicit. To include exactly `3.00` and `3.50`:
+Include exactly `3.00` and `3.50`:
 
 ```toml
 min_rating = 3.00
@@ -146,20 +223,36 @@ min_rating_inclusive = true
 max_rating_inclusive = true
 ```
 
-To select only ratings strictly above `3.50`:
+Select ratings strictly above `3.50`:
 
 ```toml
 min_rating = 3.50
 min_rating_inclusive = false
 ```
 
+## Country and official-language workflow
+
+The repository contains a manual GitHub Actions workflow that:
+
+1. discovers Letterboxd country and language filters;
+2. maps official and regional official languages;
+3. runs country processing across eight parallel shards;
+4. combines shard outputs deterministically;
+5. validates counts, canonical URLs, duplicates, and known false positives;
+6. writes import, audit, country, language, unresolved, and continent outputs.
+
+See [Country Export](docs/COUNTRY_EXPORT.md) and
+[Validated Failure Modes](docs/VALIDATED_FAILURE_MODES.md).
+
 ## Validation philosophy
 
 A scraper should fail loudly when its assumptions stop being true.
 
-Candidate-count guards are especially important for community-maintained popularity lists. A blocked page or parser regression should not produce an empty CSV and a green workflow.
+Candidate-count guards are especially important for community-maintained lists. A
+blocked response, malformed filtered URL, or parser regression must not silently
+become an empty dataset with a successful exit code.
 
-Recommended configuration:
+Recommended validation:
 
 ```toml
 [validation]
@@ -169,42 +262,71 @@ max_unresolved_ratio = 0.02
 require_nonempty_output = true
 ```
 
-Update expected counts when the source list legitimately grows.
+Update expected counts when the source list legitimately changes.
 
 ## Data interpretation
 
-The output is not an official database dump.
+The output is not an official Letterboxd database dump.
 
-- **Popularity criteria are snapshots.** A list such as “500k Watched Club” reflects the maintainer's latest update, not necessarily the current second-by-second state of Letterboxd.
-- **Ratings are current at scrape time.** A film may move into or out of the configured range later.
-- **Community lists can contain omissions or mistakes.** The audit CSV and summary exist so results can be inspected.
-- **Content filters depend on Letterboxd classifications.** Always review a sample before publishing a list.
+- **Popularity lists are snapshots.** Their counts depend on the maintainer's most
+  recent update.
+- **Ratings are collected at scrape time.** Films may later enter or leave a rating
+  range.
+- **Community lists can contain omissions or mistakes.** Inspect audit outputs.
+- **Content filters depend on Letterboxd classifications.** Review samples before
+  publishing a derived list.
 
 ## Development
 
 ```bash
-make install
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -e '.[dev,country]'
 make check
 ```
 
-Or run checks individually:
+Individual checks:
 
 ```bash
-ruff check .
-ruff format --check .
+ruff check src tests
+ruff format --check src tests
 mypy src
 pytest --cov=letterboxd_scraper --cov-report=term-missing
+python -m build
+twine check dist/*
 ```
+
+CI validates Python 3.11 and 3.12, builds a wheel and source distribution, installs
+the wheel in an isolated environment, and smoke-tests both command names.
+
+## Releases
+
+The package uses semantic versioning and records changes in
+[CHANGELOG.md](CHANGELOG.md).
+
+Publishing is prepared through GitHub Releases and PyPI Trusted Publishing:
+
+1. configure a PyPI trusted publisher for this repository and the `pypi`
+   environment;
+2. create a release whose tag matches the package version, such as `v0.2.0`;
+3. GitHub Actions builds, validates, and publishes the distributions.
 
 ## Responsible use
 
-Use conservative concurrency, caching, and request intervals. Do not use the project to overload Letterboxd or bypass authentication. Only scrape public pages, respect applicable terms and local law, and prefer snapshots over continuous high-frequency collection.
+Use conservative concurrency, caching, and request intervals. Do not overload
+Letterboxd or attempt to bypass authentication or access controls. Only process
+public pages, respect applicable terms and local law, and prefer reproducible
+snapshots over continuous high-frequency collection.
 
 ## Documentation
 
+- [Python API](docs/API.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [Scraping notes and failure modes](docs/SCRAPING_NOTES.md)
+- [Country Export](docs/COUNTRY_EXPORT.md)
+- [Scraping Notes](docs/SCRAPING_NOTES.md)
+- [Validated Failure Modes](docs/VALIDATED_FAILURE_MODES.md)
 - [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 
