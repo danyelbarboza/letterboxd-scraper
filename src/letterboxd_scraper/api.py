@@ -53,15 +53,22 @@ def build_list(
     can construct :class:`~letterboxd_scraper.config.AppConfig` directly and run
     :class:`~letterboxd_scraper.pipeline.ScrapePipeline`.
     """
-    normalized_seed_lists = _normalize_urls(seed_lists)
+    normalized_seed_lists = _normalize_urls(seed_lists, "seed_lists")
     if not normalized_seed_lists:
         raise ConfigurationError("seed_lists must contain at least one Letterboxd list URL")
 
+    normalized_filters = _normalize_strings(filters, "filters")
     _validate_rating_range(min_rating, max_rating)
     if max_pages_per_list < 1:
         raise ConfigurationError("max_pages_per_list must be positive")
     if concurrency < 1 or max_attempts < 1:
         raise ConfigurationError("concurrency and max_attempts must be positive")
+    if timeout_seconds <= 0:
+        raise ConfigurationError("timeout_seconds must be positive")
+    if min_request_interval_seconds < 0:
+        raise ConfigurationError("min_request_interval_seconds cannot be negative")
+    if cache_ttl_hours < 0:
+        raise ConfigurationError("cache_ttl_hours cannot be negative")
     if not 0 <= max_unresolved_ratio <= 1:
         raise ConfigurationError("max_unresolved_ratio must be between 0 and 1")
     if expected_min_candidates is not None and expected_min_candidates < 0:
@@ -82,9 +89,9 @@ def build_list(
     config = AppConfig(
         query=QueryConfig(
             seed_lists=normalized_seed_lists,
-            include_lists=_normalize_urls(include_lists),
-            exclude_lists=_normalize_urls(exclude_lists),
-            filters=tuple(item.strip() for item in filters if item.strip()),
+            include_lists=_normalize_urls(include_lists, "include_lists"),
+            exclude_lists=_normalize_urls(exclude_lists, "exclude_lists"),
+            filters=normalized_filters,
             min_rating=min_rating,
             max_rating=max_rating,
             min_rating_inclusive=min_rating_inclusive,
@@ -120,8 +127,16 @@ def build_list(
     return ScrapePipeline(config).run()
 
 
-def _normalize_urls(urls: Sequence[str]) -> tuple[str, ...]:
-    return tuple(dict.fromkeys(url.strip() for url in urls if url.strip()))
+def _normalize_urls(urls: Sequence[str], field_name: str) -> tuple[str, ...]:
+    return _normalize_strings(urls, field_name)
+
+
+def _normalize_strings(values: Sequence[str], field_name: str) -> tuple[str, ...]:
+    if isinstance(values, str):
+        raise ConfigurationError(f"{field_name} must be a sequence of strings, not one string")
+    if not all(isinstance(value, str) for value in values):
+        raise ConfigurationError(f"{field_name} must contain only strings")
+    return tuple(dict.fromkeys(value.strip() for value in values if value.strip()))
 
 
 def _validate_rating_range(min_rating: float | None, max_rating: float | None) -> None:
