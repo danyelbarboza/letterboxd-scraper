@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from pathlib import Path
 
 from letterboxd_scraper.cache import FilmCache
 from letterboxd_scraper.config import AppConfig
@@ -11,7 +12,12 @@ from letterboxd_scraper.film_resolver import FilmResolver
 from letterboxd_scraper.http import HttpClient
 from letterboxd_scraper.list_scraper import ListScraper
 from letterboxd_scraper.models import FilmDetails, FilmRef, ListScrapeResult
-from letterboxd_scraper.output import OutputPaths, write_outputs
+from letterboxd_scraper.output import (
+    OutputPaths,
+    write_audit_csv,
+    write_letterboxd_csv,
+    write_outputs,
+)
 from letterboxd_scraper.validation import (
     validate_candidates,
     validate_resolution,
@@ -31,6 +37,14 @@ class ScrapeResult:
     selected: list[FilmDetails]
     list_results: list[ListScrapeResult]
     output_paths: OutputPaths
+
+    def to_letterboxd_csv(self, path: str | Path) -> Path:
+        """Export the selected films to a Letterboxd-compatible CSV."""
+        return write_letterboxd_csv(path, self.selected)
+
+    def to_audit_csv(self, path: str | Path) -> Path:
+        """Export the selected films with rating and provenance metadata."""
+        return write_audit_csv(path, self.selected)
 
 
 class ScrapePipeline:
