@@ -5,7 +5,7 @@ on:
     branches:
       - agent/build-modular-letterboxd-scraper
     paths:
-      - project_bootstrap.py
+      - bootstrap.ready
 
 permissions:
   contents: write
@@ -20,10 +20,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Reassemble bootstrap script
+        run: cat bootstrap_parts/part-* > project_bootstrap.py
       - name: Materialize project files
         run: python project_bootstrap.py
       - name: Remove one-time bootstrap files
-        run: rm project_bootstrap.py .github/workflows/bootstrap-project.yml
+        run: rm -rf project_bootstrap.py bootstrap_parts bootstrap.ready .github/workflows/bootstrap-project.yml
       - name: Commit project tree
         run: |
           git config user.name "github-actions[bot]"
