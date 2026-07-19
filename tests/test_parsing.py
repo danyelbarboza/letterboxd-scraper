@@ -38,17 +38,30 @@ def test_parse_list_html_supports_poster_attributes_and_deduplication() -> None:
     assert films["https://letterboxd.com/film/moonlight/"].title == "Moonlight"
 
 
-def test_parse_list_markdown_supports_absolute_and_relative_links() -> None:
+def test_parse_list_markdown_extracts_only_poster_rows() -> None:
     markdown = """
-    [Arrival](https://letterboxd.com/film/arrival/)
-    [Moonlight](/film/moonlight/)
-    [Duplicate](https://letterboxd.com/film/arrival/)
+    * ![Image 1: Poster for Arrival](https://a.ltrbxd.com/poster.jpg)[Arrival (2016)](https://letterboxd.com/film/arrival/)
+    * ![Image 2: Poster for Moonlight](https://a.ltrbxd.com/moon.jpg)[Moonlight (2016)](/film/moonlight/)
+
+    [Navigation link](https://letterboxd.com/film/not-a-list-row/)
+    [Footer recommendation](/film/also-not-a-list-row/)
     """
     films = parse_list_markdown(markdown)
     assert set(films) == {
         "https://letterboxd.com/film/arrival/",
         "https://letterboxd.com/film/moonlight/",
     }
+    assert films["https://letterboxd.com/film/arrival/"].title == "Arrival"
+    assert films["https://letterboxd.com/film/arrival/"].year == 2016
+
+
+def test_parse_list_markdown_returns_empty_for_page_with_only_incidental_links() -> None:
+    markdown = """
+    No films matched this filter.
+    [A footer film](https://letterboxd.com/film/false-positive/)
+    [Another unrelated film](/film/another-false-positive/)
+    """
+    assert parse_list_markdown(markdown) == {}
 
 
 def test_parse_film_html_supports_new_out_of_five_rating_wording() -> None:
@@ -58,7 +71,6 @@ def test_parse_film_html_supports_new_out_of_five_rating_wording() -> None:
         <meta name="twitter:data2" content="3.90 out of 5">
         <meta property="og:title" content="Hachi: A Dog's Tale (2009) • Letterboxd">
       </head>
-      <body><small class="number"><a>2009</a></small></body>
     </html>
     """
     details = parse_film_html(
@@ -76,10 +88,10 @@ def test_parse_film_html_supports_legacy_avg_rating_wording() -> None:
     html = """
     <meta name="twitter:data2" content="3.42 avg rating">
     <meta property="og:title" content="Example (2020) • Letterboxd">
-    <small class="number">2020</small>
     """
     details = parse_film_html(html, FilmRef(uri="https://letterboxd.com/film/example/"))
     assert details.average_rating == 3.42
+    assert details.year == 2020
 
 
 def test_parse_film_html_falls_back_to_json_ld() -> None:

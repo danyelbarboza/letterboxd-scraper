@@ -1,16 +1,6 @@
-# Final clean eight-shard export run.
 name: Generate top 10 films by country
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - scripts/generate_top10_by_country.py
-      - scripts/generate_top10_by_country_shard.py
-      - scripts/run_fast_top10_country_shard.py
-      - scripts/combine_top10_by_country_shards.py
-      - .github/workflows/generate-top10-by-country.yml
   workflow_dispatch:
 
 permissions:
@@ -54,7 +44,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: corrected-country-shard-${{ matrix.shard }}
+          name: country-shard-${{ matrix.shard }}
           path: output/country-shard-${{ matrix.shard }}/
           if-no-files-found: error
           retention-days: 7
@@ -76,10 +66,10 @@ jobs:
       - name: Download country shards
         uses: actions/download-artifact@v4
         with:
-          pattern: corrected-country-shard-*
+          pattern: country-shard-*
           path: output/shards
 
-      - name: Combine shard files
+      - name: Combine and validate CSV files
         run: |
           python scripts/combine_top10_by_country_shards.py \
             output/shards \
@@ -88,7 +78,7 @@ jobs:
       - name: Archive final CSV files
         uses: actions/upload-artifact@v4
         with:
-          name: top-10-films-by-country-corrected
+          name: top-10-films-by-country
           path: output/top10-by-country/
           if-no-files-found: error
           retention-days: 7
