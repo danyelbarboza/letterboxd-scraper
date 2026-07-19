@@ -21,7 +21,6 @@ class JinaFirstFilmResolver:
     ) -> tuple[list[FilmDetails], list[FilmDetails]]:
         resolved: list[FilmDetails] = []
         unresolved: list[FilmDetails] = []
-
         with ThreadPoolExecutor(max_workers=self._concurrency) as executor:
             futures = {executor.submit(self.resolve_one, film): film for film in films.values()}
             for future in as_completed(futures):
@@ -37,7 +36,6 @@ class JinaFirstFilmResolver:
                         error=repr(exc),
                     )
                 (resolved if details.is_complete else unresolved).append(details)
-
         sort_key = lambda film: (film.title.casefold(), film.year or 0, film.uri)
         resolved.sort(key=sort_key)
         unresolved.sort(key=sort_key)
@@ -47,14 +45,12 @@ class JinaFirstFilmResolver:
         cached = self._cache.get(film.uri)
         if cached is not None:
             return cached
-
         try:
             response = self._http.get_jina(film.uri)
             details = parse_film_markdown(response.text, film)
         except Exception:
             response = self._http.get(film.uri)
             details = parse_film_html(response.text, film)
-
         self._cache.put(details)
         return details
 
