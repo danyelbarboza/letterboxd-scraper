@@ -3,7 +3,7 @@ name: Generate 2026 non-US over-10k CSV
 on:
   pull_request:
     paths:
-      - 'scripts/generate_2026_non_us_over10k.py'
+      - 'scripts/generate_2026_non_us_live.py'
       - '.github/workflows/generate-2026-non-us-over10k.yml'
 
 concurrency:
@@ -25,66 +25,12 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install --upgrade pip && python -m pip install -e .
-      - name: Tune the one-off live export
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path('scripts/generate_2026_non_us_over10k.py')
-          text = path.read_text(encoding='utf-8')
-          text = text.replace('MIN_CATALOG_PAGES = 15', 'MIN_CATALOG_PAGES = 12')
-          text = text.replace('MAX_CATALOG_PAGES = 35', 'MAX_CATALOG_PAGES = 20')
-          text = text.replace('ZERO_PASS_PAGES_TO_STOP = 7', 'ZERO_PASS_PAGES_TO_STOP = 5')
-          text = text.replace('ThreadPoolExecutor(max_workers=14)', 'ThreadPoolExecutor(max_workers=3)')
-          text = text.replace('concurrency=14,', 'concurrency=3,')
-          text = text.replace('min_request_interval_seconds=0.05,', 'min_request_interval_seconds=0.25,')
-          text = re.sub(
-              r'(rating_http = HttpClient\(\s*HttpConfig\(\s*timeout_seconds=60,\s*max_attempts=)5,',
-              r'\g<1>2,',
-              text,
-              count=1,
-              flags=re.DOTALL,
-          )
-
-          pattern = re.compile(
-              r'        rating_errors = \[item for item in page_ratings\.values\(\) if item\.error\]\n'
-              r'        if rating_errors:\n.*?'
-              r'\n        rating_candidates = \[',
-              flags=re.DOTALL,
-          )
-          lines = [
-              '        rating_errors = [item for item in page_ratings.values() if item.error]',
-              '        if rating_errors:',
-              '            scan_errors.extend(',
-              '                {',
-              '                    "Title": next((ref.title for ref in page_refs if ref.uri == item.uri), ""),',
-              '                    "LetterboxdURI": item.uri,',
-              '                    "Stage": "rating_histogram_unavailable",',
-              '                    "Error": item.error,',
-              '                }',
-              '                for item in rating_errors',
-              '            )',
-              '            print(',
-              '                f"Skipping {len(rating_errors)} titles without a reachable histogram on page {page}.",',
-              '                flush=True,',
-              '            )',
-              '',
-              '        rating_candidates = [',
-          ]
-          replacement = '\n'.join(lines)
-          text, count = pattern.subn(replacement, text)
-          if count != 1:
-              raise RuntimeError(f'Expected to patch one rating error block, patched {count}.')
-          compile(text, str(path), 'exec')
-          path.write_text(text, encoding='utf-8')
-          PY
       - name: Generate and validate CSVs
         shell: bash
         run: |
           mkdir -p output/2026-non-us-over10k-rating-above-3-4
           set -o pipefail
-          python scripts/generate_2026_non_us_over10k.py 2>&1 | tee output/2026-non-us-over10k-rating-above-3-4/run.log
+          python scripts/generate_2026_non_us_live.py 2>&1 | tee output/2026-non-us-over10k-rating-above-3-4/run.log
       - name: Upload requested CSVs and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
