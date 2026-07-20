@@ -1,0 +1,32 @@
+name: Generate 2026 non-US over-10k CSV
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/generate_2026_non_us_over10k.py'
+      - '.github/workflows/generate-2026-non-us-over10k.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install project
+        run: python -m pip install --upgrade pip && python -m pip install -e .
+      - name: Generate and validate CSVs
+        run: python scripts/generate_2026_non_us_over10k.py
+      - name: Upload requested CSVs
+        uses: actions/upload-artifact@v4
+        with:
+          name: letterboxd-2026-non-us-over10k-rating-above-3-4
+          path: output/2026-non-us-over10k-rating-above-3-4/
+          if-no-files-found: error
+          retention-days: 7
