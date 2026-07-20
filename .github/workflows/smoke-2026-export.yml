@@ -3,7 +3,12 @@ name: Smoke test 2026 live export
 on:
   pull_request:
     paths:
+      - 'scripts/generate_2026_non_us_live.py'
       - '.github/workflows/smoke-2026-export.yml'
+
+concurrency:
+  group: smoke-2026-export-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -12,6 +17,11 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      MIN_CATALOG_PAGES: '2'
+      MAX_CATALOG_PAGES: '2'
+      ZERO_PASS_PAGES_TO_STOP: '2'
+      MAX_USA_CATALOG_PAGES: '10'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,52 +30,12 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install --upgrade pip && python -m pip install -e .
-      - name: Limit and tune smoke scan
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          import re
-
-          path = Path('scripts/generate_2026_non_us_over10k.py')
-          text = path.read_text(encoding='utf-8')
-          text = text.replace('MIN_CATALOG_PAGES = 15', 'MIN_CATALOG_PAGES = 2')
-          text = text.replace('MAX_CATALOG_PAGES = 35', 'MAX_CATALOG_PAGES = 2')
-          text = text.replace('ZERO_PASS_PAGES_TO_STOP = 7', 'ZERO_PASS_PAGES_TO_STOP = 2')
-          text = text.replace('ThreadPoolExecutor(max_workers=14)', 'ThreadPoolExecutor(max_workers=4)')
-          text = text.replace('concurrency=14,', 'concurrency=4,')
-          text = text.replace('min_request_interval_seconds=0.05,', 'min_request_interval_seconds=0.18,')
-          text = re.sub(
-              r'(rating_http = HttpClient\(\s*HttpConfig\(\s*timeout_seconds=60,\s*max_attempts=)5,',
-              r'\g<1>2,',
-              text,
-              count=1,
-              flags=re.DOTALL,
-          )
-          pattern = re.compile(
-              r'        rating_errors = \[item for item in page_ratings\.values\(\) if item\.error\]\n'
-              r'        if rating_errors:\n.*?'
-              r'\n        rating_candidates = \[',
-              flags=re.DOTALL,
-          )
-          lines = [
-              '        rating_errors = [item for item in page_ratings.values() if item.error]',
-              '        if rating_errors:',
-              '            print(f"Skipping {len(rating_errors)} unavailable histograms.", flush=True)',
-              '',
-              '        rating_candidates = [',
-          ]
-          text, count = pattern.subn('\n'.join(lines), text)
-          if count != 1:
-              raise RuntimeError(f'Expected one patch, got {count}')
-          compile(text, str(path), 'exec')
-          path.write_text(text, encoding='utf-8')
-          PY
       - name: Run smoke export
         shell: bash
         run: |
           mkdir -p output/2026-non-us-over10k-rating-above-3-4
           set -o pipefail
-          python scripts/generate_2026_non_us_over10k.py 2>&1 | tee output/2026-non-us-over10k-rating-above-3-4/smoke.log
+          python scripts/generate_2026_non_us_live.py 2>&1 | tee output/2026-non-us-over10k-rating-above-3-4/smoke.log
       - name: Upload smoke output
         if: always()
         uses: actions/upload-artifact@v4
