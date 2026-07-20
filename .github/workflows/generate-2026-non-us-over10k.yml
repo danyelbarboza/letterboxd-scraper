@@ -25,6 +25,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p output/2026-non-us-over10k-rating-above-3-4
+          sed -i 's#https://letterboxd.com/imthelizardking/list/all-the-movies-10k-views-4/#https://letterboxd.com/kordian86/list/all-the-movies-10k-views-2/#' scripts/generate_2026_non_us_over10k.py
           set -o pipefail
           python scripts/generate_2026_non_us_over10k.py 2>&1 | tee output/2026-non-us-over10k-rating-above-3-4/run.log
       - name: Upload requested CSVs and diagnostics
