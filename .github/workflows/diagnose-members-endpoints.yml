@@ -1,4 +1,4 @@
-name: Trace recursive poster metadata bundles
+name: Probe official film statistics endpoints
 
 on:
   pull_request:
@@ -11,134 +11,92 @@ permissions:
 jobs:
   diagnose:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Download and search JavaScript dependency graph
+      - name: Probe statistics endpoints
         run: |
           python -m pip install requests beautifulsoup4
-          mkdir -p members-diagnostics/bundles
+          mkdir -p members-diagnostics
           python - <<'PY'
           from __future__ import annotations
 
-          import hashlib
           import json
           import re
-          from collections import deque
           from pathlib import Path
-          from urllib.parse import urljoin, urlparse
 
           import requests
           from bs4 import BeautifulSoup
 
-          PAGE_URL = 'https://letterboxd.com/film/project-hail-mary/'
-          MAX_FILES = 250
-          headers = {
-              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
-              'Accept-Language': 'en-US,en;q=0.9',
-          }
-          session = requests.Session()
-          session.headers.update(headers)
           out = Path('members-diagnostics')
-          bundles = out / 'bundles'
+          session = requests.Session()
+          session.headers.update({
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
+              'Accept': 'application/json,text/plain,*/*',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Referer': 'https://letterboxd.com/film/project-hail-mary/',
+          })
 
-          page = session.get(PAGE_URL, timeout=60)
-          soup = BeautifulSoup(page.text, 'html.parser')
-          queue = deque(
-              urljoin(PAGE_URL, str(node.get('src')))
-              for node in soup.select('script[type="module"][src], script[src]')
-              if 's.ltrbxd.com/static/js/' in str(node.get('src'))
-          )
-          seen: set[str] = set()
-          summary: dict[str, object] = {
-              'page_status': page.status_code,
-              'initial_scripts': list(queue),
-              'files': {},
+          page = session.get('https://letterboxd.com/film/project-hail-mary/', timeout=60)
+          page_text = page.text
+          soup = BeautifulSoup(page_text, 'html.parser')
+          csrf = ''
+          csrf_node = soup.select_one('meta[name="csrf-token"], input[name="__csrf"]')
+          if csrf_node:
+              csrf = str(csrf_node.get('content') or csrf_node.get('value') or '')
+          if not csrf:
+              match = re.search(r'csrf(?:Token)?["\']?\s*[:=]\s*["\']([^"\']+)', page_text, re.I)
+              csrf = match.group(1) if match else ''
+
+          urls = {
+              'same_origin_film_stats': 'https://letterboxd.com/api/v0/film/pEeQ/statistics',
+              'api_host_film_stats': 'https://api.letterboxd.com/api/v0/film/pEeQ/statistics',
+              'same_origin_global_stats': 'https://letterboxd.com/api/v0/statistics?film=pEeQ',
+              'api_host_global_stats': 'https://api.letterboxd.com/api/v0/statistics?film=pEeQ',
+              'same_origin_production': 'https://letterboxd.com/api/v0/production/pEeQ?type=Film',
+              'api_host_production': 'https://api.letterboxd.com/api/v0/production/pEeQ?type=Film',
           }
 
-          needles = [
-              'Watched by',
-              'icon-watched',
-              'data-original-title',
-              'data-request-poster-metadata',
-              'request-poster-metadata',
-              'requestPosterMetadata',
-              'posterMetadata',
-              'poster-metadata',
-              'watchCount',
-              'watches',
-              'filmStats',
-              'rating-histogram',
-              'letterboxd-metadata',
-              'dataEndpoint',
-              '/json/',
-              '/ajax/',
-              '/csi/',
-          ]
-
-          import_patterns = [
-              re.compile(r'(?:from\s*)?["\']([^"\']+\.js)["\']'),
-              re.compile(r'import\(["\']([^"\']+\.js)["\']\)'),
-              re.compile(r'__vite__mapDeps\([^)]*\)'),
-          ]
-
-          while queue and len(seen) < MAX_FILES:
-              url = queue.popleft()
-              if url in seen:
-                  continue
-              seen.add(url)
+          summary = {
+              'page_status': page.status_code,
+              'page_final_url': page.url,
+              'cookies': session.cookies.get_dict(),
+              'csrf_found': bool(csrf),
+              'responses': {},
+          }
+          for name, url in urls.items():
+              headers = {}
+              if csrf:
+                  headers['X-CSRF-TOKEN'] = csrf
               try:
-                  response = session.get(url, timeout=90)
-                  text = response.text
-                  path = urlparse(url).path
-                  digest = hashlib.sha1(url.encode()).hexdigest()[:8]
-                  filename = f'{len(seen):03d}_{digest}_{Path(path).name}'
-                  (bundles / filename).write_text(text, encoding='utf-8')
-
-                  matches = {}
-                  for needle in needles:
-                      contexts = []
-                      for match in list(re.finditer(re.escape(needle), text, flags=re.I))[:50]:
-                          contexts.append(
-                              text[max(0, match.start() - 1200):match.start() + 2600]
-                          )
-                      if contexts:
-                          matches[needle] = contexts
-
-                  dependencies: list[str] = []
-                  for pattern in import_patterns[:2]:
-                      for match in pattern.finditer(text):
-                          dep = urljoin(url, match.group(1))
-                          if 's.ltrbxd.com/static/js/' in dep and dep not in seen:
-                              dependencies.append(dep)
-                              queue.append(dep)
-
-                  summary['files'][filename] = {
+                  response = session.get(url, headers=headers, timeout=60, allow_redirects=True)
+                  body = response.text
+                  try:
+                      parsed = response.json()
+                  except Exception:
+                      parsed = None
+                  summary['responses'][name] = {
                       'url': url,
                       'status': response.status_code,
-                      'length': len(text),
-                      'dependencies': sorted(set(dependencies)),
-                      'matches': matches,
+                      'final_url': response.url,
+                      'content_type': response.headers.get('content-type'),
+                      'www_authenticate': response.headers.get('www-authenticate'),
+                      'cf_mitigated': response.headers.get('cf-mitigated'),
+                      'json': parsed,
+                      'body_prefix': body[:2000],
                   }
+                  (out / f'{name}.txt').write_text(body, encoding='utf-8')
               except Exception as exc:
-                  summary['files'][url] = {'error': repr(exc)}
+                  summary['responses'][name] = {'url': url, 'error': repr(exc)}
 
-          summary['downloaded_count'] = len(seen)
-          summary['queue_remaining'] = len(queue)
-          (out / 'summary.json').write_text(
-              json.dumps(summary, ensure_ascii=False, indent=2),
-              encoding='utf-8',
-          )
-          print(f'Downloaded {len(seen)} bundles; remaining={len(queue)}')
-          for filename, record in summary['files'].items():
-              if record.get('matches'):
-                  print(filename, list(record['matches']))
+          (out / 'summary.json').write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding='utf-8')
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: letterboxd-recursive-bundle-trace
+          name: letterboxd-official-statistics-probe
           path: members-diagnostics/
           if-no-files-found: error
           retention-days: 2
