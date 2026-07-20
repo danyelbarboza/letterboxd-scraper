@@ -16,21 +16,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test members endpoint variants
+      - name: Test members pagination and rows
         run: |
-          python -m pip install requests
+          python -m pip install requests beautifulsoup4
           mkdir -p members-diagnostics
           python - <<'PY'
           import json
           from pathlib import Path
+
           import requests
+          from bs4 import BeautifulSoup
 
           urls = {
-              'embed_first': 'https://embed.letterboxd.com/film/project-hail-mary/members/',
-              'embed_threshold': 'https://embed.letterboxd.com/film/project-hail-mary/members/page/401/',
-              'embed_low_threshold': 'https://embed.letterboxd.com/film/backrooms-2026/members/page/401/',
-              'standard_first': 'https://letterboxd.com/film/project-hail-mary/members/',
-              'standard_threshold': 'https://letterboxd.com/film/project-hail-mary/members/page/401/',
+              'project_p2': 'https://letterboxd.com/film/project-hail-mary/members/page/2/',
+              'project_p100': 'https://letterboxd.com/film/project-hail-mary/members/page/100/',
+              'project_p200': 'https://letterboxd.com/film/project-hail-mary/members/page/200/',
+              'project_p400': 'https://letterboxd.com/film/project-hail-mary/members/page/400/',
+              'project_p401': 'https://letterboxd.com/film/project-hail-mary/members/page/401/',
+              'barbie_p401': 'https://letterboxd.com/film/barbie/members/page/401/',
+              'barbie_p1000': 'https://letterboxd.com/film/barbie/members/page/1000/',
+              'barbie_p5000': 'https://letterboxd.com/film/barbie/members/page/5000/',
+              'backrooms_p401': 'https://letterboxd.com/film/backrooms-2026/members/page/401/',
           }
           headers = {'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'en-US,en;q=0.9'}
           out = Path('members-diagnostics')
@@ -39,14 +45,29 @@ jobs:
               try:
                   response = requests.get(url, headers=headers, timeout=60, allow_redirects=True)
                   text = response.text
+                  soup = BeautifulSoup(text, 'html.parser')
+                  table = soup.select_one('table')
+                  body_rows = table.select('tbody tr') if table else []
+                  pagination = soup.select_one('.pagination')
                   summary[name] = {
                       'url': url,
                       'status': response.status_code,
                       'final_url': response.url,
                       'length': len(text),
-                      'activity_count': text.count('Activity for film'),
-                      'film_link_count': text.count('/film/project-hail-mary/'),
-                      'title': text[text.find('<title>'):text.find('</title>') + 8] if '<title>' in text else '',
+                      'tbody_rows': len(body_rows),
+                      'all_table_rows': len(table.select('tr')) if table else 0,
+                      'previous_href': (
+                          pagination.select_one('a.previous').get('href')
+                          if pagination and pagination.select_one('a.previous')
+                          else None
+                      ),
+                      'next_href': (
+                          pagination.select_one('a.next').get('href')
+                          if pagination and pagination.select_one('a.next')
+                          else None
+                      ),
+                      'title': soup.title.get_text(' ', strip=True) if soup.title else '',
+                      'cloudflare': 'Just a moment' in text,
                   }
                   (out / f'{name}.html').write_text(text, encoding='utf-8')
               except Exception as exc:
