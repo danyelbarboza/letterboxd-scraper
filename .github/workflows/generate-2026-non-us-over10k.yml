@@ -28,8 +28,8 @@ jobs:
           path = Path('scripts/generate_2026_non_us_over10k.py')
           text = path.read_text(encoding='utf-8')
           text = text.replace(
-              're.compile(r"^Activity for film\\b", flags=re.MULTILINE)',
-              're.compile(r"^\\s*Activity for film\\b", flags=re.MULTILINE)',
+              'return len(_ACTIVITY_PATTERN.findall(markdown))',
+              'return markdown.count("Activity for film")',
           )
           path.write_text(text, encoding='utf-8')
           PY
