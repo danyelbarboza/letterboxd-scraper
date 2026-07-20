@@ -1,0 +1,48 @@
+name: Diagnose 2026 list filters
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diagnose-2026-filter.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Fetch raw filter responses
+        run: |
+          python -m pip install requests
+          mkdir -p raw-filter-diagnostics
+          python - <<'PY'
+          from pathlib import Path
+          import requests
+
+          output = Path('raw-filter-diagnostics')
+          urls = {
+              'year_2026_jina.md': 'https://r.jina.ai/https://letterboxd.com/hershwin/list/all-the-movies/year/2026/',
+              'usa_year_2026_jina.md': 'https://r.jina.ai/https://letterboxd.com/hershwin/list/all-the-movies/country/usa/year/2026/',
+              'year_2026_direct.html': 'https://letterboxd.com/hershwin/list/all-the-movies/year/2026/',
+              'base_page_1_jina.md': 'https://r.jina.ai/https://letterboxd.com/hershwin/list/all-the-movies/',
+          }
+          for filename, url in urls.items():
+              try:
+                  response = requests.get(url, timeout=90, headers={'User-Agent': 'Mozilla/5.0'})
+                  body = f'STATUS={response.status_code}\nFINAL_URL={response.url}\n\n{response.text}'
+              except Exception as exc:
+                  body = f'ERROR={exc!r}'
+              (output / filename).write_text(body, encoding='utf-8')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: letterboxd-2026-filter-diagnostics
+          path: raw-filter-diagnostics/
+          if-no-files-found: error
+          retention-days: 2
