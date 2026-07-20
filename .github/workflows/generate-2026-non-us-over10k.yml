@@ -6,6 +6,10 @@ on:
       - 'scripts/generate_2026_non_us_over10k.py'
       - '.github/workflows/generate-2026-non-us-over10k.yml'
 
+concurrency:
+  group: generate-2026-non-us-over10k-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
