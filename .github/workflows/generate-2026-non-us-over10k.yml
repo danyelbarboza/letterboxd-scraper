@@ -25,6 +25,9 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install --upgrade pip && python -m pip install -e .
+      - name: Use stable USA catalog route
+        run: |
+          sed -i 's#https://letterboxd.com/films/country/usa/year/{YEAR}/by/popular/#https://letterboxd.com/films/country/usa/year/{YEAR}/#' scripts/generate_2026_non_us_live.py
       - name: Generate and validate CSVs
         shell: bash
         run: |
