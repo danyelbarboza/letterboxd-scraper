@@ -21,6 +21,18 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install --upgrade pip && python -m pip install -e .
+      - name: Normalize Jina member-row parsing
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/generate_2026_non_us_over10k.py')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace(
+              're.compile(r"^Activity for film\\b", flags=re.MULTILINE)',
+              're.compile(r"^\\s*Activity for film\\b", flags=re.MULTILINE)',
+          )
+          path.write_text(text, encoding='utf-8')
+          PY
       - name: Generate and validate CSVs
         shell: bash
         run: |
