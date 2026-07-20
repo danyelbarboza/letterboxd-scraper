@@ -12,7 +12,7 @@ permissions:
 jobs:
   generate:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -21,16 +21,57 @@ jobs:
           cache: pip
       - name: Install project
         run: python -m pip install --upgrade pip && python -m pip install -e .
-      - name: Normalize Jina member-row parsing
+      - name: Tune the one-off live export
         run: |
           python - <<'PY'
           from pathlib import Path
+          import re
+
           path = Path('scripts/generate_2026_non_us_over10k.py')
           text = path.read_text(encoding='utf-8')
-          text = text.replace(
-              'return len(_ACTIVITY_PATTERN.findall(markdown))',
-              'return markdown.count("Activity for film")',
+          text = text.replace('MAX_CATALOG_PAGES = 35', 'MAX_CATALOG_PAGES = 25')
+          text = text.replace('ThreadPoolExecutor(max_workers=14)', 'ThreadPoolExecutor(max_workers=5)')
+          text = text.replace('concurrency=14,', 'concurrency=5,')
+          text = text.replace('min_request_interval_seconds=0.05,', 'min_request_interval_seconds=0.18,')
+
+          pattern = re.compile(
+              r'        rating_errors = \[item for item in page_ratings\.values\(\) if item\.error\]\n'
+              r'        if rating_errors:\n.*?'
+              r'\n        rating_candidates = \[',
+              flags=re.DOTALL,
           )
+          replacement = '''        rating_errors = [item for item in page_ratings.values() if item.error]
+          if rating_errors:
+              print(
+                  f"Retrying {len(rating_errors)} unavailable histograms on page {page} serially.",
+                  flush=True,
+              )
+              refs_on_page = {ref.uri: ref for ref in page_refs}
+              for item in rating_errors:
+                  ref = refs_on_page[item.uri]
+                  page_ratings[item.uri] = resolve_rating(rating_http, ref)
+              rating_errors = [item for item in page_ratings.values() if item.error]
+
+          if rating_errors:
+              scan_errors.extend(
+                  {
+                      "Title": next((ref.title for ref in page_refs if ref.uri == item.uri), ""),
+                      "LetterboxdURI": item.uri,
+                      "Stage": "rating_histogram",
+                      "Error": item.error,
+                  }
+                  for item in rating_errors
+              )
+              print(
+                  f"Skipping {len(rating_errors)} titles whose histogram remained unavailable "
+                  f"on page {page} after retry.",
+                  flush=True,
+              )
+
+          rating_candidates = ['''
+          text, count = pattern.subn(replacement, text)
+          if count != 1:
+              raise RuntimeError(f'Expected to patch one rating error block, patched {count}.')
           path.write_text(text, encoding='utf-8')
           PY
       - name: Generate and validate CSVs
