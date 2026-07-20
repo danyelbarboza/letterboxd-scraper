@@ -1,0 +1,23 @@
+name: Export Other 20th Century metadata
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/export_other_list.py'
+      - '.github/workflows/export-other-list.yml'
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests beautifulsoup4
+      - run: python scripts/export_other_list.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: other-20th-century-full
+          path: output/other_20th_century_full.json

@@ -1,0 +1,30 @@
+name: Analyze watched-film progress
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/analyze_ratings_progress.py'
+      - 'input/ratings.csv'
+      - '.github/workflows/analyze-ratings-progress.yml'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install requests beautifulsoup4
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api repos/danyelbarboza/letterboxd-list-toolkit/actions/artifacts/8445441641/zip > atlas.zip
+          mkdir atlas
+          unzip -q atlas.zip -d atlas
+      - run: python scripts/analyze_ratings_progress.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ratings-progress-result
+          path: output/ratings_progress.json
