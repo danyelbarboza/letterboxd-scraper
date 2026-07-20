@@ -1,0 +1,98 @@
+name: Diagnose 2026 catalog endpoints
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diagnose-2026-catalog.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install project
+        run: python -m pip install --upgrade pip && python -m pip install -e . requests
+      - name: Inspect catalog endpoints
+        run: |
+          mkdir -p catalog-diagnostics/raw
+          python - <<'PY'
+          from __future__ import annotations
+
+          import json
+          from pathlib import Path
+
+          import requests
+
+          from letterboxd_scraper.parsing import parse_list_html, parse_list_markdown
+
+          out = Path('catalog-diagnostics')
+          raw = out / 'raw'
+          endpoints = {
+              'year_default_p1': 'https://letterboxd.com/films/year/2026/',
+              'year_default_p2': 'https://letterboxd.com/films/year/2026/page/2/',
+              'year_popular_p1': 'https://letterboxd.com/films/year/2026/by/popular/',
+              'year_popular_p2': 'https://letterboxd.com/films/year/2026/by/popular/page/2/',
+              'usa_then_year': 'https://letterboxd.com/films/country/usa/year/2026/',
+              'year_then_usa': 'https://letterboxd.com/films/year/2026/country/usa/',
+          }
+          summary = {}
+          headers = {'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'en-US,en;q=0.9'}
+          for name, url in endpoints.items():
+              record = {'url': url}
+              try:
+                  response = requests.get(url, headers=headers, timeout=60)
+                  direct_text = response.text
+                  direct_films = parse_list_html(direct_text)
+                  record.update({
+                      'direct_status': response.status_code,
+                      'direct_final_url': response.url,
+                      'direct_length': len(direct_text),
+                      'direct_count': len(direct_films),
+                      'direct_examples': [
+                          {'uri': item.uri, 'title': item.title, 'year': item.year}
+                          for item in list(direct_films.values())[:8]
+                      ],
+                  })
+                  (raw / f'{name}_direct.html').write_text(direct_text, encoding='utf-8')
+              except Exception as exc:
+                  record['direct_error'] = repr(exc)
+
+              try:
+                  jina_url = f'https://r.jina.ai/{url}'
+                  response = requests.get(jina_url, headers=headers, timeout=90)
+                  markdown = response.text
+                  jina_films = parse_list_markdown(markdown)
+                  record.update({
+                      'jina_status': response.status_code,
+                      'jina_length': len(markdown),
+                      'jina_count': len(jina_films),
+                      'jina_examples': [
+                          {'uri': item.uri, 'title': item.title, 'year': item.year}
+                          for item in list(jina_films.values())[:8]
+                      ],
+                  })
+                  (raw / f'{name}_jina.md').write_text(markdown, encoding='utf-8')
+              except Exception as exc:
+                  record['jina_error'] = repr(exc)
+
+              summary[name] = record
+
+          (out / 'summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2),
+              encoding='utf-8',
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: letterboxd-2026-catalog-diagnostics
+          path: catalog-diagnostics/
+          if-no-files-found: error
+          retention-days: 2
