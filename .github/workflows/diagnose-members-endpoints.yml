@@ -1,4 +1,4 @@
-name: Diagnose film statistics endpoints
+name: Diagnose rating histogram watch counts
 
 on:
   pull_request:
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Probe public and API endpoints
+      - name: Probe histogram variants
         run: |
           python -m pip install requests beautifulsoup4
           mkdir -p members-diagnostics/raw
@@ -26,7 +26,6 @@ jobs:
           import json
           import re
           from pathlib import Path
-          from urllib.parse import urljoin
 
           import requests
           from bs4 import BeautifulSoup
@@ -36,121 +35,57 @@ jobs:
           headers = {
               'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
               'Accept-Language': 'en-US,en;q=0.9',
-              'Accept': 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
           }
-          session = requests.Session()
-          session.headers.update(headers)
+          slugs = ['project-hail-mary', 'barbie', 'backrooms-2026']
+          summary = {}
 
-          films = ['project-hail-mary', 'barbie', 'backrooms-2026']
-          summary: dict[str, object] = {}
-
-          for slug in films:
-              page_url = f'https://letterboxd.com/film/{slug}/'
-              response = session.get(page_url, timeout=60, allow_redirects=True)
-              html = response.text
-              soup = BeautifulSoup(html, 'html.parser')
-              lid = response.headers.get('x-letterboxd-identifier', '')
-
-              attrs = []
-              for node in soup.find_all(True):
-                  for key, value in node.attrs.items():
-                      serialized = ' '.join(value) if isinstance(value, list) else str(value)
-                      lowered = f'{key}={serialized}'.casefold()
-                      if any(token in lowered for token in ('stat', 'watch', 'member', 'json', 'rating')):
-                          attrs.append({'tag': node.name, 'key': key, 'value': serialized[:500]})
-                          if len(attrs) >= 100:
-                              break
-                  if len(attrs) >= 100:
-                      break
-
-              snippets = {}
-              for token in ('statistics', 'watches', 'watch-count', 'film-stats', 'rating', '/json/', 'member-data'):
-                  positions = [match.start() for match in re.finditer(re.escape(token), html, flags=re.I)][:8]
-                  snippets[token] = [html[max(0, pos - 250):pos + 500] for pos in positions]
-
-              links = sorted({
-                  urljoin(page_url, str(node.get('href') or node.get('src') or ''))
-                  for node in soup.select('[href], [src]')
-                  if any(
-                      token in str(node.get('href') or node.get('src') or '').casefold()
-                      for token in ('stat', 'watch', 'member', 'json', 'film')
-                  )
-              })
-
-              film_summary = {
-                  'page': {
-                      'status': response.status_code,
-                      'final_url': response.url,
-                      'lid': lid,
-                      'interesting_headers': {
-                          key: value
-                          for key, value in response.headers.items()
-                          if any(token in key.casefold() for token in ('letterboxd', 'location', 'content-type'))
-                      },
-                      'length': len(html),
-                      'title': soup.title.get_text(' ', strip=True) if soup.title else '',
-                      'interesting_attributes': attrs,
-                      'candidate_links': links[:200],
-                      'snippets': snippets,
-                  },
-                  'endpoints': {},
+          for slug in slugs:
+              target = f'https://letterboxd.com/csi/film/{slug}/rating-histogram/'
+              variants = {
+                  'jina_csi': f'https://r.jina.ai/{target}',
+                  'jina_csi_query': f'https://r.jina.ai/{target}?esiAllowUser=true',
+                  'embed_csi': f'https://embed.letterboxd.com/csi/film/{slug}/rating-histogram/',
+                  'direct_csi': target,
               }
-              (raw / f'{slug}_main.html').write_text(html, encoding='utf-8')
-
-              endpoint_urls = {
-                  'website_json': f'https://letterboxd.com/film/{slug}/json/',
-                  'member_data': f'https://letterboxd.com/film/{slug}/member-data/',
-                  'website_statistics': f'https://letterboxd.com/film/{slug}/statistics/',
-                  'csi_statistics': f'https://letterboxd.com/csi/film/{slug}/statistics/',
-                  'csi_rating_histogram': f'https://letterboxd.com/csi/film/{slug}/rating-histogram/',
-              }
-              if lid:
-                  endpoint_urls.update({
-                      'api_deprecated_statistics': f'https://api.letterboxd.com/api/v0/film/{lid}/statistics',
-                      'api_statistics_query': f'https://api.letterboxd.com/api/v0/statistics?film={lid}',
-                      'api_production': f'https://api.letterboxd.com/api/v0/production/{lid}',
-                  })
-
-              for name, url in endpoint_urls.items():
+              slug_summary = {}
+              for name, url in variants.items():
                   try:
-                      endpoint_response = session.get(
+                      response = requests.get(
                           url,
-                          timeout=60,
-                          allow_redirects=True,
                           headers={
                               **headers,
-                              'Accept': 'application/json,text/html;q=0.9,*/*;q=0.8',
-                              'Referer': page_url,
-                              'X-Requested-With': 'XMLHttpRequest',
+                              'Referer': f'https://letterboxd.com/film/{slug}/',
                           },
+                          timeout=90,
+                          allow_redirects=True,
                       )
-                      body = endpoint_response.text
-                      content_type = endpoint_response.headers.get('content-type', '')
-                      parsed_json = None
-                      try:
-                          parsed_json = endpoint_response.json()
-                      except Exception:
-                          pass
-                      film_summary['endpoints'][name] = {
+                      body = response.text
+                      soup = BeautifulSoup(body, 'html.parser')
+                      tooltip_values = [
+                          str(node.get('data-original-title') or node.get('title') or '')
+                          for node in soup.select('[data-original-title], [title]')
+                          if 'Watched by' in str(node.get('data-original-title') or node.get('title') or '')
+                      ]
+                      regex_matches = re.findall(
+                          r'Watched by\s+([0-9][0-9,\.\s\u00a0]*)\s+members?',
+                          body,
+                          flags=re.I,
+                      )
+                      slug_summary[name] = {
                           'url': url,
-                          'status': endpoint_response.status_code,
-                          'final_url': endpoint_response.url,
-                          'content_type': content_type,
+                          'status': response.status_code,
+                          'final_url': response.url,
+                          'content_type': response.headers.get('content-type', ''),
                           'length': len(body),
-                          'headers': {
-                              key: value
-                              for key, value in endpoint_response.headers.items()
-                              if any(token in key.casefold() for token in ('letterboxd', 'location', 'content-type', 'www-authenticate'))
-                          },
-                          'json': parsed_json,
+                          'tooltips': tooltip_values,
+                          'regex_matches': regex_matches,
+                          'contains_watched_by': 'Watched by' in body,
                           'body_prefix': body[:1500],
                       }
-                      suffix = 'json' if parsed_json is not None else 'txt'
-                      (raw / f'{slug}_{name}.{suffix}').write_text(body, encoding='utf-8')
+                      (raw / f'{slug}_{name}.txt').write_text(body, encoding='utf-8')
                   except Exception as exc:
-                      film_summary['endpoints'][name] = {'url': url, 'error': repr(exc)}
-
-              summary[slug] = film_summary
+                      slug_summary[name] = {'url': url, 'error': repr(exc)}
+              summary[slug] = slug_summary
 
           (out / 'summary.json').write_text(
               json.dumps(summary, ensure_ascii=False, indent=2),
@@ -160,7 +95,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: letterboxd-film-statistics-diagnostics
+          name: letterboxd-rating-histogram-diagnostics
           path: members-diagnostics/
           if-no-files-found: error
           retention-days: 2
