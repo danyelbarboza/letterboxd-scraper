@@ -40,38 +40,42 @@ jobs:
               r'\n        rating_candidates = \[',
               flags=re.DOTALL,
           )
-          replacement = '''        rating_errors = [item for item in page_ratings.values() if item.error]
-          if rating_errors:
-              print(
-                  f"Retrying {len(rating_errors)} unavailable histograms on page {page} serially.",
-                  flush=True,
-              )
-              refs_on_page = {ref.uri: ref for ref in page_refs}
-              for item in rating_errors:
-                  ref = refs_on_page[item.uri]
-                  page_ratings[item.uri] = resolve_rating(rating_http, ref)
-              rating_errors = [item for item in page_ratings.values() if item.error]
-
-          if rating_errors:
-              scan_errors.extend(
-                  {
-                      "Title": next((ref.title for ref in page_refs if ref.uri == item.uri), ""),
-                      "LetterboxdURI": item.uri,
-                      "Stage": "rating_histogram",
-                      "Error": item.error,
-                  }
-                  for item in rating_errors
-              )
-              print(
-                  f"Skipping {len(rating_errors)} titles whose histogram remained unavailable "
-                  f"on page {page} after retry.",
-                  flush=True,
-              )
-
-          rating_candidates = ['''
+          lines = [
+              '        rating_errors = [item for item in page_ratings.values() if item.error]',
+              '        if rating_errors:',
+              '            print(',
+              '                f"Retrying {len(rating_errors)} unavailable histograms on page {page} serially.",',
+              '                flush=True,',
+              '            )',
+              '            refs_on_page = {ref.uri: ref for ref in page_refs}',
+              '            for item in rating_errors:',
+              '                ref = refs_on_page[item.uri]',
+              '                page_ratings[item.uri] = resolve_rating(rating_http, ref)',
+              '            rating_errors = [item for item in page_ratings.values() if item.error]',
+              '',
+              '        if rating_errors:',
+              '            scan_errors.extend(',
+              '                {',
+              '                    "Title": next((ref.title for ref in page_refs if ref.uri == item.uri), ""),',
+              '                    "LetterboxdURI": item.uri,',
+              '                    "Stage": "rating_histogram",',
+              '                    "Error": item.error,',
+              '                }',
+              '                for item in rating_errors',
+              '            )',
+              '            print(',
+              '                f"Skipping {len(rating_errors)} titles whose histogram remained unavailable "',
+              '                f"on page {page} after retry.",',
+              '                flush=True,',
+              '            )',
+              '',
+              '        rating_candidates = [',
+          ]
+          replacement = '\n'.join(lines)
           text, count = pattern.subn(replacement, text)
           if count != 1:
               raise RuntimeError(f'Expected to patch one rating error block, patched {count}.')
+          compile(text, str(path), 'exec')
           path.write_text(text, encoding='utf-8')
           PY
       - name: Generate and validate CSVs
