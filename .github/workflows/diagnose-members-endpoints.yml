@@ -1,4 +1,4 @@
-name: Diagnose rating histogram watch counts
+name: Diagnose poster metadata watch counts
 
 on:
   pull_request:
@@ -16,7 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Probe histogram variants
+      - name: Probe poster metadata variants
         run: |
           python -m pip install requests beautifulsoup4
           mkdir -p members-diagnostics/raw
@@ -32,7 +32,7 @@ jobs:
 
           out = Path('members-diagnostics')
           raw = out / 'raw'
-          headers = {
+          browser_headers = {
               'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
               'Accept-Language': 'en-US,en;q=0.9',
           }
@@ -40,51 +40,83 @@ jobs:
           summary = {}
 
           for slug in slugs:
-              target = f'https://letterboxd.com/csi/film/{slug}/rating-histogram/'
+              main_url = f'https://letterboxd.com/film/{slug}/'
+              session = requests.Session()
+              session.headers.update(browser_headers)
+              main_response = session.get(main_url, timeout=60)
+              main_html = main_response.text
+              csrf_match = re.search(r"supermodelCSRF\s*=\s*'([^']+)'", main_html)
+              csrf = csrf_match.group(1) if csrf_match else ''
+
+              endpoint = f'https://letterboxd.com/film/{slug}/json/'
               variants = {
-                  'jina_csi': f'https://r.jina.ai/{target}',
-                  'jina_csi_query': f'https://r.jina.ai/{target}?esiAllowUser=true',
-                  'embed_csi': f'https://embed.letterboxd.com/csi/film/{slug}/rating-histogram/',
-                  'direct_csi': target,
+                  'jina_json': f'https://r.jina.ai/{endpoint}',
+                  'jina_json_query': f'https://r.jina.ai/{endpoint}?esiAllowUser=true',
+                  'embed_json': f'https://embed.letterboxd.com/film/{slug}/json/',
+                  'direct_json_browser': endpoint,
               }
-              slug_summary = {}
+              slug_summary = {
+                  'main_status': main_response.status_code,
+                  'main_lid': main_response.headers.get('x-letterboxd-identifier', ''),
+                  'csrf_found': bool(csrf),
+                  'variants': {},
+              }
+
               for name, url in variants.items():
                   try:
-                      response = requests.get(
+                      headers = {
+                          **browser_headers,
+                          'Accept': 'application/json,text/plain,*/*',
+                          'Referer': main_url,
+                          'X-Requested-With': 'XMLHttpRequest',
+                          'Sec-Fetch-Dest': 'empty',
+                          'Sec-Fetch-Mode': 'cors',
+                          'Sec-Fetch-Site': 'same-origin',
+                      }
+                      if csrf:
+                          headers['X-CSRFToken'] = csrf
+                          headers['X-Supermodel-CSRF'] = csrf
+                      response = session.get(
                           url,
-                          headers={
-                              **headers,
-                              'Referer': f'https://letterboxd.com/film/{slug}/',
-                          },
+                          headers=headers,
                           timeout=90,
                           allow_redirects=True,
                       )
                       body = response.text
-                      soup = BeautifulSoup(body, 'html.parser')
-                      tooltip_values = [
-                          str(node.get('data-original-title') or node.get('title') or '')
-                          for node in soup.select('[data-original-title], [title]')
-                          if 'Watched by' in str(node.get('data-original-title') or node.get('title') or '')
-                      ]
-                      regex_matches = re.findall(
+                      parsed_json = None
+                      try:
+                          parsed_json = response.json()
+                      except Exception:
+                          pass
+
+                      tooltip_matches = re.findall(
                           r'Watched by\s+([0-9][0-9,\.\s\u00a0]*)\s+members?',
                           body,
                           flags=re.I,
                       )
-                      slug_summary[name] = {
+                      number_contexts = []
+                      for token in ('watched', 'watches', 'watchCount', 'rating', 'members'):
+                          for match in list(re.finditer(token, body, flags=re.I))[:10]:
+                              number_contexts.append(
+                                  body[max(0, match.start() - 150):match.start() + 400]
+                              )
+
+                      slug_summary['variants'][name] = {
                           'url': url,
                           'status': response.status_code,
                           'final_url': response.url,
                           'content_type': response.headers.get('content-type', ''),
                           'length': len(body),
-                          'tooltips': tooltip_values,
-                          'regex_matches': regex_matches,
-                          'contains_watched_by': 'Watched by' in body,
+                          'json': parsed_json,
+                          'tooltip_matches': tooltip_matches,
+                          'contexts': number_contexts[:30],
                           'body_prefix': body[:1500],
                       }
-                      (raw / f'{slug}_{name}.txt').write_text(body, encoding='utf-8')
+                      suffix = 'json' if parsed_json is not None else 'txt'
+                      (raw / f'{slug}_{name}.{suffix}').write_text(body, encoding='utf-8')
                   except Exception as exc:
-                      slug_summary[name] = {'url': url, 'error': repr(exc)}
+                      slug_summary['variants'][name] = {'url': url, 'error': repr(exc)}
+
               summary[slug] = slug_summary
 
           (out / 'summary.json').write_text(
@@ -95,7 +127,7 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: letterboxd-rating-histogram-diagnostics
+          name: letterboxd-poster-metadata-diagnostics
           path: members-diagnostics/
           if-no-files-found: error
           retention-days: 2
