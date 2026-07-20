@@ -1,4 +1,4 @@
-name: Diagnose public members endpoints
+name: Diagnose film statistics endpoints
 
 on:
   pull_request:
@@ -16,68 +16,151 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Test members pagination and rows
+      - name: Probe public and API endpoints
         run: |
           python -m pip install requests beautifulsoup4
-          mkdir -p members-diagnostics
+          mkdir -p members-diagnostics/raw
           python - <<'PY'
+          from __future__ import annotations
+
           import json
+          import re
           from pathlib import Path
+          from urllib.parse import urljoin
 
           import requests
           from bs4 import BeautifulSoup
 
-          urls = {
-              'project_p2': 'https://letterboxd.com/film/project-hail-mary/members/page/2/',
-              'project_p100': 'https://letterboxd.com/film/project-hail-mary/members/page/100/',
-              'project_p200': 'https://letterboxd.com/film/project-hail-mary/members/page/200/',
-              'project_p400': 'https://letterboxd.com/film/project-hail-mary/members/page/400/',
-              'project_p401': 'https://letterboxd.com/film/project-hail-mary/members/page/401/',
-              'barbie_p401': 'https://letterboxd.com/film/barbie/members/page/401/',
-              'barbie_p1000': 'https://letterboxd.com/film/barbie/members/page/1000/',
-              'barbie_p5000': 'https://letterboxd.com/film/barbie/members/page/5000/',
-              'backrooms_p401': 'https://letterboxd.com/film/backrooms-2026/members/page/401/',
-          }
-          headers = {'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'en-US,en;q=0.9'}
           out = Path('members-diagnostics')
-          summary = {}
-          for name, url in urls.items():
-              try:
-                  response = requests.get(url, headers=headers, timeout=60, allow_redirects=True)
-                  text = response.text
-                  soup = BeautifulSoup(text, 'html.parser')
-                  table = soup.select_one('table')
-                  body_rows = table.select('tbody tr') if table else []
-                  pagination = soup.select_one('.pagination')
-                  summary[name] = {
-                      'url': url,
+          raw = out / 'raw'
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/150 Safari/537.36',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Accept': 'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+          }
+          session = requests.Session()
+          session.headers.update(headers)
+
+          films = ['project-hail-mary', 'barbie', 'backrooms-2026']
+          summary: dict[str, object] = {}
+
+          for slug in films:
+              page_url = f'https://letterboxd.com/film/{slug}/'
+              response = session.get(page_url, timeout=60, allow_redirects=True)
+              html = response.text
+              soup = BeautifulSoup(html, 'html.parser')
+              lid = response.headers.get('x-letterboxd-identifier', '')
+
+              attrs = []
+              for node in soup.find_all(True):
+                  for key, value in node.attrs.items():
+                      serialized = ' '.join(value) if isinstance(value, list) else str(value)
+                      lowered = f'{key}={serialized}'.casefold()
+                      if any(token in lowered for token in ('stat', 'watch', 'member', 'json', 'rating')):
+                          attrs.append({'tag': node.name, 'key': key, 'value': serialized[:500]})
+                          if len(attrs) >= 100:
+                              break
+                  if len(attrs) >= 100:
+                      break
+
+              snippets = {}
+              for token in ('statistics', 'watches', 'watch-count', 'film-stats', 'rating', '/json/', 'member-data'):
+                  positions = [match.start() for match in re.finditer(re.escape(token), html, flags=re.I)][:8]
+                  snippets[token] = [html[max(0, pos - 250):pos + 500] for pos in positions]
+
+              links = sorted({
+                  urljoin(page_url, str(node.get('href') or node.get('src') or ''))
+                  for node in soup.select('[href], [src]')
+                  if any(
+                      token in str(node.get('href') or node.get('src') or '').casefold()
+                      for token in ('stat', 'watch', 'member', 'json', 'film')
+                  )
+              })
+
+              film_summary = {
+                  'page': {
                       'status': response.status_code,
                       'final_url': response.url,
-                      'length': len(text),
-                      'tbody_rows': len(body_rows),
-                      'all_table_rows': len(table.select('tr')) if table else 0,
-                      'previous_href': (
-                          pagination.select_one('a.previous').get('href')
-                          if pagination and pagination.select_one('a.previous')
-                          else None
-                      ),
-                      'next_href': (
-                          pagination.select_one('a.next').get('href')
-                          if pagination and pagination.select_one('a.next')
-                          else None
-                      ),
+                      'lid': lid,
+                      'interesting_headers': {
+                          key: value
+                          for key, value in response.headers.items()
+                          if any(token in key.casefold() for token in ('letterboxd', 'location', 'content-type'))
+                      },
+                      'length': len(html),
                       'title': soup.title.get_text(' ', strip=True) if soup.title else '',
-                      'cloudflare': 'Just a moment' in text,
-                  }
-                  (out / f'{name}.html').write_text(text, encoding='utf-8')
-              except Exception as exc:
-                  summary[name] = {'url': url, 'error': repr(exc)}
-          (out / 'summary.json').write_text(json.dumps(summary, indent=2), encoding='utf-8')
-          print(json.dumps(summary, indent=2))
+                      'interesting_attributes': attrs,
+                      'candidate_links': links[:200],
+                      'snippets': snippets,
+                  },
+                  'endpoints': {},
+              }
+              (raw / f'{slug}_main.html').write_text(html, encoding='utf-8')
+
+              endpoint_urls = {
+                  'website_json': f'https://letterboxd.com/film/{slug}/json/',
+                  'member_data': f'https://letterboxd.com/film/{slug}/member-data/',
+                  'website_statistics': f'https://letterboxd.com/film/{slug}/statistics/',
+                  'csi_statistics': f'https://letterboxd.com/csi/film/{slug}/statistics/',
+                  'csi_rating_histogram': f'https://letterboxd.com/csi/film/{slug}/rating-histogram/',
+              }
+              if lid:
+                  endpoint_urls.update({
+                      'api_deprecated_statistics': f'https://api.letterboxd.com/api/v0/film/{lid}/statistics',
+                      'api_statistics_query': f'https://api.letterboxd.com/api/v0/statistics?film={lid}',
+                      'api_production': f'https://api.letterboxd.com/api/v0/production/{lid}',
+                  })
+
+              for name, url in endpoint_urls.items():
+                  try:
+                      endpoint_response = session.get(
+                          url,
+                          timeout=60,
+                          allow_redirects=True,
+                          headers={
+                              **headers,
+                              'Accept': 'application/json,text/html;q=0.9,*/*;q=0.8',
+                              'Referer': page_url,
+                              'X-Requested-With': 'XMLHttpRequest',
+                          },
+                      )
+                      body = endpoint_response.text
+                      content_type = endpoint_response.headers.get('content-type', '')
+                      parsed_json = None
+                      try:
+                          parsed_json = endpoint_response.json()
+                      except Exception:
+                          pass
+                      film_summary['endpoints'][name] = {
+                          'url': url,
+                          'status': endpoint_response.status_code,
+                          'final_url': endpoint_response.url,
+                          'content_type': content_type,
+                          'length': len(body),
+                          'headers': {
+                              key: value
+                              for key, value in endpoint_response.headers.items()
+                              if any(token in key.casefold() for token in ('letterboxd', 'location', 'content-type', 'www-authenticate'))
+                          },
+                          'json': parsed_json,
+                          'body_prefix': body[:1500],
+                      }
+                      suffix = 'json' if parsed_json is not None else 'txt'
+                      (raw / f'{slug}_{name}.{suffix}').write_text(body, encoding='utf-8')
+                  except Exception as exc:
+                      film_summary['endpoints'][name] = {'url': url, 'error': repr(exc)}
+
+              summary[slug] = film_summary
+
+          (out / 'summary.json').write_text(
+              json.dumps(summary, ensure_ascii=False, indent=2),
+              encoding='utf-8',
+          )
+          print(json.dumps(summary, ensure_ascii=False, indent=2))
           PY
       - uses: actions/upload-artifact@v4
         with:
-          name: letterboxd-members-endpoint-diagnostics
+          name: letterboxd-film-statistics-diagnostics
           path: members-diagnostics/
           if-no-files-found: error
           retention-days: 2
